@@ -199,7 +199,9 @@ pub struct ShapedFonts {
 impl ShapedFonts {
     /// Build the fonts for `clusters` into `fonts`, under names starting `prefix` that neither
     /// `taken` (the page's fonts) nor `fonts` already has. `outline` gives a glyph's outline in its
-    /// script's face (the craft-fonts faces, or a stand-in in tests). `store` keeps each new
+    /// script's face (the craft-fonts faces, or a stand-in in tests). `korean_family` names the
+    /// fonts of an all-Korean set (the face is chosen per item, so [`ShapedScript::font`] can't
+    /// know it). `store` keeps each new
     /// object and returns what refers to it: `doc.add` as a reference, or the object itself for
     /// an appearance that isn't in a document yet, whose streams [`store_streams`] then moves in.
     ///
@@ -211,6 +213,7 @@ impl ShapedFonts {
         taken: &Dict,
         fonts: &mut Dict,
         prefix: &str,
+        korean_family: Option<&str>,
         store: &mut dyn FnMut(Object) -> Object,
     ) -> Result<Self, (GlyphError, &'a ShapedCluster)> {
         let mut keys: Vec<&ShapedCluster> = Vec::new();
@@ -234,7 +237,7 @@ impl ShapedFonts {
         let mut taken_names: HashSet<Vec<u8>> = taken.iter().chain(fonts.iter()).map(|(name, _)| name.clone()).collect();
         let mut names = Vec::new();
         for (i, chunk) in keys.chunks(GLYPHS_PER_FONT).enumerate() {
-            let font = type3_font(chunk, &outlines, store);
+            let font = type3_font(chunk, &outlines, korean_family, store);
             let font = store(Object::Dict(font));
             let number = font.as_ref().map_or(i + 1, |r| r.num as usize);
             let mut name = format!("{prefix}{number}");
@@ -344,7 +347,7 @@ pub fn fallback_appearance_lines(lines: &[String], thai: bool, latin: bool, font
     let pieces: Vec<Vec<Piece>> =
         lines.iter().map(|l| if l.chars().any(needs) { fallback_pieces(l, thai, latin).unwrap_or_else(|_| plain(l)) } else { plain(l) }).collect();
     let prefix = if thai { "PCTh" } else { "PCLa" };
-    match ShapedFonts::new(clusters(pieces.iter().map(Vec::as_slice)), shaped_glyph, &Dict::new(), fonts, prefix, &mut |o| o).map_err(|(e, _)| e) {
+    match ShapedFonts::new(clusters(pieces.iter().map(Vec::as_slice)), shaped_glyph, &Dict::new(), fonts, prefix, None, &mut |o| o).map_err(|(e, _)| e) {
         Ok(shaped) => (pieces, shaped),
         Err(_) => (lines.iter().map(plain).collect(), ShapedFonts::default()),
     }
@@ -397,12 +400,17 @@ pub fn add_type3_font(
     clusters: &[&ShapedCluster],
     outlines: &HashMap<(ShapedScript, u32), GlyphOutline>,
 ) -> pdfcraft_cos::ObjRef {
-    let font = type3_font(clusters, outlines, &mut |o| Object::Ref(doc.add(o)));
+    let font = type3_font(clusters, outlines, None, &mut |o| Object::Ref(doc.add(o)));
     doc.add(Object::Dict(font))
 }
 
 /// A Type 3 font with `clusters` as codes 1…, each drawn from its script face's glyph `outlines`.
-fn type3_font(clusters: &[&ShapedCluster], outlines: &HashMap<(ShapedScript, u32), GlyphOutline>, store: &mut dyn FnMut(Object) -> Object) -> Dict {
+fn type3_font(
+    clusters: &[&ShapedCluster],
+    outlines: &HashMap<(ShapedScript, u32), GlyphOutline>,
+    korean_family: Option<&str>,
+    store: &mut dyn FnMut(Object) -> Object,
+) -> Dict {
     let mut charprocs = Dict::new();
     let mut differences = vec![Object::Int(1)];
     let mut widths = Vec::with_capacity(clusters.len());
@@ -454,12 +462,14 @@ fn type3_font(clusters: &[&ShapedCluster], outlines: &HashMap<(ShapedScript, u32
     // The face's family when every glyph comes from one script; without the face, the script's
     // name (as Arabic items were always named).
     let family = match clusters.first().map(|c| c.script).filter(|s| clusters.iter().all(|c| c.script == *s)) {
+        Some(ShapedScript::Korean) => korean_family.unwrap_or("Korean"),
         Some(script) => script.font().map_or(
             match script {
                 ShapedScript::Arabic => "Arabic",
                 ShapedScript::Hebrew => "Hebrew",
                 ShapedScript::Thai => "Thai",
                 ShapedScript::Latin => "Inter",
+                ShapedScript::Korean => "Korean",
             },
             |f| f.family,
         ),
@@ -550,7 +560,7 @@ mod tests {
     fn appearance_fonts_keep_their_streams_until_stored_then_refer_to_them() {
         let clusters = [cluster("น้ำ", 1), cluster("ก", 2), cluster("น้ำ", 1)];
         let mut fonts = Dict::new();
-        let made = ShapedFonts::new(&clusters, |_, _| Ok(boxed(0.5)), &Dict::new(), &mut fonts, "PCTh", &mut |o| o).unwrap();
+        let made = ShapedFonts::new(&clusters, |_, _| Ok(boxed(0.5)), &Dict::new(), &mut fonts, "PCTh", None, &mut |o| o).unwrap();
         assert_eq!(made.code(&clusters[0]), Some(("PCTh1", 1)));
         assert_eq!(made.code(&clusters[1]), Some(("PCTh1", 2)), "a repeated cluster is one glyph");
         let mut line = Vec::new();
@@ -578,7 +588,7 @@ mod tests {
         let clusters = [cluster("ก", 2)];
         let mut fonts = Dict::new();
         let mut stored = 0;
-        let made = ShapedFonts::new(&clusters, |_, _| Err(GlyphError::Missing), &Dict::new(), &mut fonts, "PCTh", &mut |o| {
+        let made = ShapedFonts::new(&clusters, |_, _| Err(GlyphError::Missing), &Dict::new(), &mut fonts, "PCTh", None, &mut |o| {
             stored += 1;
             o
         });
