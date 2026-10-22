@@ -1665,6 +1665,51 @@ fn korean_replacement_text_uses_the_korean_face() {
     assert!(!ko.is_empty(), "the Korean fallback is generated as a PCKo font");
 }
 
+/// Korean replacement in a serif (Times-family) line draws the 명조 craft face (Hakgyoansim
+/// Sangjang), not the script face plain text keeps.
+#[test]
+fn korean_serif_replacement_uses_the_sangjang_face() {
+    if pdfcraft_fonts::document_korean_fonts_for_style(true, false).is_empty() {
+        eprintln!(
+            "skipping korean_serif_replacement_uses_the_sangjang_face: no Kore face in this build (set CRAFT_FONTS_DIR to a checkout with one)"
+        );
+        return;
+    }
+    let replacement = "한국어 명조";
+    let mut doc = styled_text_page("Times-Roman");
+    let r = text::replace_line(&mut doc, 0, 0, replacement).unwrap();
+    assert_eq!(r.substituted.as_deref(), Some("Hakgyoansim Sangjang R Type3"), "{r:?}");
+    let lines = text::text_lines(&reopen(&doc), 0).unwrap();
+    assert_eq!(lines[0].text, replacement);
+    assert!(lines[0].base_font.contains("HakgyoansimSangjang"), "{} should report the serif Korean face", lines[0].base_font);
+}
+
+/// A bold Korean replacement draws the 고딕 craft face's Bold (Hakgyoansim Chulseokbu), never a
+/// synthesized weight of another face.
+#[test]
+fn korean_bold_replacement_uses_the_chulseokbu_bold_face() {
+    if pdfcraft_fonts::document_korean_fonts_for_style(false, true).is_empty() {
+        eprintln!(
+            "skipping korean_bold_replacement_uses_the_chulseokbu_bold_face: no Kore face in this build (set CRAFT_FONTS_DIR to a checkout with one)"
+        );
+        return;
+    }
+    let replacement = "한국어 고딕";
+    let mut doc = text_page("BT /F2 12 Tf 72 700 Td (ab) Tj ET");
+    let r = text::rewrite_block(
+        &mut doc,
+        0,
+        0,
+        Some(replacement),
+        &text::BlockStyle { family: Some((added::Family::Helvetica, true, false)), ..Default::default() },
+    )
+    .unwrap();
+    assert_eq!(r.substituted.as_deref(), Some("Hakgyoansim Chulseokbu TTF Type3"), "{r:?}");
+    let lines = text::text_lines(&reopen(&doc), 0).unwrap();
+    assert_eq!(lines[0].text, replacement);
+    assert!(lines[0].base_font.contains("HakgyoansimChulseokbuTTF-Bold"), "{} should report the bold Korean face", lines[0].base_font);
+}
+
 /// Without a Korean face the refusal names Korean and says how to get one; nothing is drawn.
 #[test]
 fn korean_replacement_without_a_korean_face_says_so() {
