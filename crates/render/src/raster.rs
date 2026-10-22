@@ -126,7 +126,14 @@ fn japanese_fallback(query: &FontQuery) -> Option<(FontData, u32)> {
 /// PdfCraft was built without a Korean craft face.
 fn korean_fallback(query: &FontQuery) -> Option<(FontData, u32)> {
     let FontQuery::Fallback(f) = query else { return None };
-    if f.character_collection.as_ref()?.family != CidFamily::AdobeKorea1 {
+    // A non-embedded font may declare the predefined Adobe-Korea1 collection or the bare Adobe/KR
+    // registry-ordering pair, which parses as a custom family; both are Korean.
+    let is_korean = match &f.character_collection.as_ref()?.family {
+        CidFamily::AdobeKorea1 => true,
+        CidFamily::Custom { registry, ordering } => registry.as_slice() == b"Adobe" && ordering.as_slice() == b"KR",
+        _ => false,
+    };
+    if !is_korean {
         return None;
     }
     let face = pdfcraft_fonts::document_korean_font()?;
