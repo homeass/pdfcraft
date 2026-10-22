@@ -56,6 +56,14 @@ pub(crate) fn editor_font(look: &pdfcraft_engine::AddedText, size: f32) -> FontI
     FontId::new(size, preview_family(look.family, look.bold, look.italic))
 }
 
+/// Whether the preview draws `look` with an already-slanted Tinos design. epaint leans
+/// `TextFormat.italics` text with a synthetic shear, and on the real italic families that
+/// would slant the glyphs twice; where no oblique UI face exists (Inter, JetBrains Mono) the
+/// synthetic lean stays the only slant on offer.
+pub(crate) fn real_italic(look: &pdfcraft_engine::AddedText) -> bool {
+    matches!(preview_family(look.family, look.bold, look.italic), FontFamily::Name(n) if n.as_ref() == "serif-italic" || n.as_ref() == "serif-bold-italic")
+}
+
 pub(super) fn color32(color: [f64; 3]) -> Color32 {
     Color32::from_rgb(
         (color[0].clamp(0.0, 1.0) * 255.0).round() as u8,
@@ -196,7 +204,7 @@ pub(super) fn editor_job(ui: &egui::Ui, ed: &LineEditor, text: &str, scale: f32,
             egui::TextFormat {
                 font_id: editor_font(&ed.look, ed.size),
                 color: color32(ed.look.color),
-                italics: ed.look.italic,
+                italics: ed.look.italic && !real_italic(&ed.look),
                 ..Default::default()
             },
         );
