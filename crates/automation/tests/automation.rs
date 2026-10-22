@@ -2944,6 +2944,30 @@ fn editing_existing_korean_text_through_tools() {
     assert_eq!(lines["lines"][0]["text"].as_str(), Some("두 번째 장"), "Hangul round-trips through the saved ToUnicode map");
 }
 
+/// Korean added text through the tools: page_add_text draws it with the craft-fonts Korean faces
+/// (the Latin in the box keeps the standard font), and save/reopen extracts and finds it.
+#[test]
+fn adding_korean_text_through_tools() {
+    if pdfcraft_fonts::document_korean_font().is_none() {
+        eprintln!("skipping adding_korean_text_through_tools: no Korean craft face (set CRAFT_FONTS_DIR to a checkout with one)");
+        return;
+    }
+    let dir = workdir("add-text-ko");
+    let mut a = auto(&dir);
+    let doc = ok(&mut a, "doc_open", json!({ "path": "a.pdf" }))["doc"].as_u64().unwrap();
+    let text = "회신 B12 부탁입니다";
+    ok(&mut a, "page_add_text", json!({ "doc": doc, "page": 2, "text": text, "at": [20, 20], "size": 14 }));
+    assert!(page_text(&mut a, doc)[1].contains(text), "{:?}", page_text(&mut a, doc));
+    ok(&mut a, "doc_save", json!({ "doc": doc, "path": "korean-added.pdf" }));
+    let re = ok(&mut a, "doc_open", json!({ "path": "korean-added.pdf" }))["doc"].as_u64().unwrap();
+    let lines = ok(&mut a, "text_lines", json!({ "doc": re, "page": 2 }));
+    assert!(
+        lines["lines"].as_array().unwrap().iter().any(|l| l["text"].as_str() == Some(text)),
+        "Hangul round-trips through the saved ToUnicode map: {lines}"
+    );
+    assert_eq!(ok(&mut a, "text_find", json!({ "doc": re, "query": "회신 B12" }))["count"], 1);
+}
+
 /// One page whose content is one stream in three pieces (#155): a `TJ` array ends the middle
 /// piece and its operator starts the last one.
 fn split_streams_pdf() -> Vec<u8> {
@@ -3489,9 +3513,14 @@ fn creating_from_text_refuses_what_the_font_cannot_draw() {
     // WinAnsi characters, line breaks and tabs are still fine.
     let d = ok(&mut a, "doc_create", json!({ "from": "text", "text": "Price: 5 € at café\r\n\tnext\u{c}page two" }))["doc"].as_u64().unwrap();
     assert_eq!(page_text(&mut a, d).len(), 2);
-    // #959: page_add_text refuses it too.
+    // #959: page_add_text refuses what nothing can draw. Japanese still has no Added-text
+    // writer; Korean now draws (adding_korean_text_through_tools).
     let doc = ok(&mut a, "doc_create", json!({ "from": "blank" }))["doc"].as_u64().unwrap();
-    refused(a.call("page_add_text", &json!({ "doc": doc, "page": 1, "text": "ABC 제안서 시험", "at": [20, 20] })));
+    let japanese = a.call("page_add_text", &json!({ "doc": doc, "page": 1, "text": "ABC 日本語", "at": [20, 20] }));
+    match japanese {
+        Err(ToolError::InvalidArgs(m) | ToolError::Failed(m)) => assert!(m.contains("U+65E5"), "{m}"),
+        other => panic!("expected a refusal, got {other:?}"),
+    }
 }
 
 #[test]

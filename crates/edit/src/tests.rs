@@ -1056,6 +1056,110 @@ fn odd_hebrew_text_never_panics() {
     }
 }
 
+/// Korean added text draws with the craft-fonts Korean faces (Type 3, ToUnicode) while the Latin
+/// in the same box keeps the item's standard font, and everything round-trips.
+#[test]
+fn added_korean_text_is_written_and_read_back() {
+    let mut doc = fixture();
+    let t = AddedText { rect: [72.0, 600.0, 400.0, 700.0], text: "회신 B12 부탁입니다".into(), size: 14.0, ..AddedText::default() };
+    if pdfcraft_fonts::document_korean_font().is_none() {
+        assert_eq!(first_undrawable(&t), Some('회'));
+        let err = add_content(&mut doc, 0, &Content::Text(t)).unwrap_err().to_string();
+        assert!(err.contains("Korean") && err.contains("CRAFT_FONTS_DIR"), "{err}");
+        assert!(!doc.is_modified(), "nothing is written when the font is missing");
+        return;
+    }
+    assert_eq!(first_undrawable(&t), None);
+    add_content(&mut doc, 0, &Content::Text(t.clone())).unwrap();
+    let doc = reopen(&doc);
+    let Content::Text(rt) = &list_added(&doc)[0].content else { panic!() };
+    assert_eq!(rt.text, "회신 B12 부탁입니다", "the logical text is kept for editing");
+    // The Hangul glyphs come from a PCKo-prefixed Type 3 font drawn from the Korean face, whose
+    // ToUnicode map gives each syllable back.
+    let p = &pdfcraft_model::pages(&doc)[0];
+    let res = doc.resolve(p.dict.get(b"Resources").unwrap());
+    let fonts = doc.resolve(res.as_dict().unwrap().get(b"Font").unwrap()).as_dict().unwrap().clone();
+    let korean: Vec<_> = fonts.iter().filter(|(k, _)| k.starts_with(b"PCKo")).map(|(_, v)| doc.resolve(v).as_dict().unwrap().clone()).collect();
+    assert!(!korean.is_empty(), "the Korean glyphs are a PCKo font");
+    let mut mapped = String::new();
+    for f in &korean {
+        assert_eq!(f.name(b"Subtype"), Some(&b"Type3"[..]));
+        mapped += &String::from_utf8_lossy(&stream_bytes(&doc, f.get(b"ToUnicode").unwrap()).unwrap());
+    }
+    for ch in "회신부탁입니다".chars() {
+        let hex = format!("{:04X}", u32::from(ch));
+        assert!(mapped.contains(&format!("<{hex}>")), "{ch} in {mapped}");
+    }
+    let font_name = |f: &Dict| doc.resolve(f.get(b"FontDescriptor").unwrap()).as_dict().unwrap().name(b"FontName").map(<[u8]>::to_vec);
+    assert!(korean.iter().any(|f| font_name(f).as_deref() == Some(&b"HakgyoansimNamu"[..])));
+    // Reopening reports the Korean face, and the Latin segment rode the item's standard font.
+    let lines = text::text_lines(&doc, 0).unwrap();
+    assert!(lines.iter().any(|l| l.text == "회신 B12 부탁입니다" && l.base_font.contains("Hakgyoansim")), "{lines:?}");
+    let page0 = streams(&doc, 0);
+    let item = page0.iter().find(|s| s.contains("B12")).unwrap();
+    assert!(item.contains("/PCFHelvetica"), "{item}");
+}
+
+/// The style's own Korean face: plain → Namu, Times → Sangjang, bold → Chulseokbu Bold (never a
+/// synthesized weight; Courier has no Korean mono face and draws the plain faces).
+#[test]
+fn added_korean_text_draws_the_style_the_request_asks_for() {
+    if pdfcraft_fonts::document_korean_font().is_none() {
+        eprintln!(
+            "skipping added_korean_text_draws_the_style_the_request_asks_for: no Kore face in this build (set CRAFT_FONTS_DIR to a checkout with one)"
+        );
+        return;
+    }
+    for (family, bold, expected) in [
+        (Family::Helvetica, false, "HakgyoansimNamu"),
+        (Family::Times, false, "HakgyoansimSangjangR"),
+        (Family::Helvetica, true, "HakgyoansimChulseokbuTTF"),
+    ] {
+        let mut doc = fixture();
+        let t = AddedText { rect: [72.0, 600.0, 400.0, 700.0], text: "한글".into(), family, bold, ..AddedText::default() };
+        add_content(&mut doc, 0, &Content::Text(t)).unwrap();
+        let p = &pdfcraft_model::pages(&doc)[0];
+        let res = doc.resolve(p.dict.get(b"Resources").unwrap());
+        let fonts = doc.resolve(res.as_dict().unwrap().get(b"Font").unwrap()).as_dict().unwrap().clone();
+        let korean: Vec<_> = fonts.iter().filter(|(k, _)| k.starts_with(b"PCKo")).map(|(_, v)| doc.resolve(v).as_dict().unwrap().clone()).collect();
+        let font_name = |f: &Dict| doc.resolve(f.get(b"FontDescriptor").unwrap()).as_dict().unwrap().name(b"FontName").map(<[u8]>::to_vec);
+        let names: Vec<Option<Vec<u8>>> = korean.iter().map(font_name).collect();
+        assert!(
+            names.iter().any(|n| n.as_deref() == Some(expected.as_bytes())),
+            "{family:?} bold {bold}: no {expected} font in {names:?} of {} fonts",
+            korean.len()
+        );
+    }
+}
+
+/// Without a Korean face the refusal names Korean and says how to get one (the replacement
+/// path's message, not the generic standard-fonts wording); nothing is drawn.
+#[test]
+fn added_korean_text_without_a_korean_face_says_so() {
+    if pdfcraft_fonts::document_korean_font().is_some() {
+        return;
+    }
+    let mut doc = fixture();
+    let t = AddedText { rect: [72.0, 600.0, 400.0, 700.0], text: "한국어".into(), ..AddedText::default() };
+    assert_eq!(first_undrawable(&t), Some('한'));
+    let err = add_content(&mut doc, 0, &Content::Text(t)).unwrap_err().to_string();
+    assert!(err.contains("Korean") && err.contains("CRAFT_FONTS_DIR"), "{err}");
+    assert!(!doc.is_modified(), "nothing is written when the font is missing");
+}
+
+/// `first_undrawable` judges Korean by the Korean faces: a mixed line is drawable when they are
+/// built in, refused when they are not, and a Hangul character no Kore face has (the old-jamo
+/// block) stays refused either way.
+#[test]
+fn first_undrawable_judges_korean_by_the_korean_faces() {
+    let mixed = AddedText { rect: [72.0, 600.0, 400.0, 700.0], text: "회신 B12".into(), ..AddedText::default() };
+    assert_eq!(first_undrawable(&mixed).is_none(), pdfcraft_fonts::document_korean_font().is_some(), "{mixed:?}");
+    if pdfcraft_fonts::document_korean_font().is_some() {
+        let old_jamo = AddedText { text: "\u{119E}".into(), ..mixed };
+        assert_eq!(first_undrawable(&old_jamo), Some('\u{119E}'));
+    }
+}
+
 /// The `PCAr` font names in page `page`'s resources.
 fn arabic_font_names(doc: &Document, page: usize) -> Vec<String> {
     let p = &pdfcraft_model::pages(doc)[page];
