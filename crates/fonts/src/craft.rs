@@ -95,15 +95,58 @@ pub fn ui_korean_fonts() -> Vec<&'static CraftFont> {
     CRAFT_FONTS.iter().filter(|f| f.covers("Kore")).collect()
 }
 
-/// The face for Korean text written into PDFs: the `Kore` face whose style is `Regular`, else
-/// any `Kore` face. `None` without craft-fonts or without a Korean face.
+/// The face for Korean text written into PDFs: the script face (Hakgyoansim Namu) — Regular
+/// first, then Light — else the first `Kore` face with style `Regular`, else any `Kore` face.
+/// `None` without craft-fonts or without a Korean face.
 pub fn document_korean_font() -> Option<&'static CraftFont> {
-    korean_face(CRAFT_FONTS)
+    korean_script_face(CRAFT_FONTS)
+}
+
+fn korean_script_face(faces: &[CraftFont]) -> Option<&CraftFont> {
+    let kore = || faces.iter().filter(|f| f.covers("Kore"));
+    kore()
+        .find(|f| f.family == "Hakgyoansim Namu" && f.style == "Regular")
+        .or_else(|| kore().find(|f| f.family == "Hakgyoansim Namu"))
+        .or_else(|| korean_face(faces))
 }
 
 fn korean_face(faces: &[CraftFont]) -> Option<&CraftFont> {
     let kore = || faces.iter().filter(|f| f.covers("Kore"));
     kore().find(|f| f.style == "Regular").or_else(|| kore().next())
+}
+
+/// Every `Kore` face that can stand in for the document text, the best match for the style first
+/// (the face a serif/sans and bold request asks for), then the others. Not every face has every
+/// glyph a line may need, so a caller can move on to the next one. Empty without craft-fonts or
+/// without a Korean face.
+///
+/// Serif text prefers the 명조 face (Hakgyoansim Sangjang R), sans text the 고딕 one (Hakgyoansim
+/// Chulseokbu TTF, which has no Regular: Light stands in for it, Bold only for bold requests).
+/// Missing faces degrade in this order — a serif request without Sangjang draws the sans face, and
+/// a bold request without a Bold face draws Light — and no weight is ever synthesized.
+pub fn document_korean_fonts_for_style(serif: bool, bold: bool) -> Vec<&'static CraftFont> {
+    korean_faces_for_style(CRAFT_FONTS, serif, bold)
+}
+
+fn korean_faces_for_style(faces: &[CraftFont], serif: bool, bold: bool) -> Vec<&CraftFont> {
+    let kore = || faces.iter().filter(|f| f.covers("Kore"));
+    let chulseokbu = |style: &str| kore().find(|f| f.family == "Hakgyoansim Chulseokbu TTF" && f.style == style);
+    let mut preferred = Vec::new();
+    if serif {
+        preferred.extend(kore().find(|f| f.family == "Hakgyoansim Sangjang R" && f.style == "Regular"));
+        preferred.extend(chulseokbu(if bold { "Bold" } else { "Light" }));
+    } else {
+        preferred.extend(chulseokbu(if bold { "Bold" } else { "Light" }));
+        preferred.extend(chulseokbu("Light"));
+    }
+    preferred.extend(korean_script_face(faces));
+    let mut out: Vec<&CraftFont> = Vec::new();
+    for face in preferred {
+        if !out.iter().any(|f| std::ptr::eq(*f, face)) {
+            out.push(face);
+        }
+    }
+    out
 }
 
 /// The `Hebr` craft-fonts faces for Hebrew interface text (file names, document titles, text
@@ -382,17 +425,65 @@ mod tests {
 
     #[test]
     fn korean_faces_follow_the_style_without_inventing_weights() {
-        static KORE_LATN: &[&str] = &["Kore", "Latn"];
+        fn kore(family: &'static str, style: &'static str, bytes: &'static [u8]) -> CraftFont {
+            CraftFont { family, style, scripts: &["Kore", "Latn"], bytes }
+        }
+        // Manifest order: Namu Light, …, Namu Regular, Sangjang, Chulseokbu Light, Chulseokbu Bold.
         let faces = [
-            CraftFont { family: "Hakgyoansim Namu", style: "Light", scripts: KORE_LATN, bytes: b"light" },
+            kore("Hakgyoansim Namu", "Light", b"namu-light"),
             CraftFont { family: "BIZ UDPGothic", style: "Regular", scripts: &["Jpan"], bytes: b"not-korean" },
-            CraftFont { family: "Hakgyoansim Namu", style: "Regular", scripts: KORE_LATN, bytes: b"regular" },
+            kore("Hakgyoansim Namu", "Regular", b"namu"),
+            kore("Hakgyoansim Sangjang R", "Regular", b"sangjang"),
+            kore("Hakgyoansim Chulseokbu TTF", "Light", b"chul-light"),
+            kore("Hakgyoansim Chulseokbu TTF", "Bold", b"chul-bold"),
         ];
-        // Regular wins over a listed-first Light.
-        assert_eq!(korean_face(&faces).map(|f| f.bytes), Some(&b"regular"[..]));
-        // No Regular: the first Kore face, never a face of another script.
-        assert_eq!(korean_face(&faces[..1]).map(|f| f.bytes), Some(&b"light"[..]));
-        assert!(korean_face(&faces[1..2]).is_none());
+        let order = |faces: &[CraftFont], serif: bool, bold: bool| -> Vec<&[u8]> {
+            korean_faces_for_style(faces, serif, bold).iter().map(|f| f.bytes).collect()
+        };
+        // The script default stays Namu (Regular over a listed-first Light), never another family.
+        assert_eq!(korean_script_face(&faces).map(|f| f.bytes), Some(&b"namu"[..]));
+        assert_eq!(korean_script_face(&faces[..1]).map(|f| f.bytes), Some(&b"namu-light"[..]));
+        assert!(korean_script_face(&faces[1..2]).is_none());
+        // Each style picks its own family, in order, and no face twice.
+        assert_eq!(order(&faces, true, false), [b"sangjang".as_slice(), b"chul-light", b"namu"]);
+        assert_eq!(order(&faces, true, true), [b"sangjang".as_slice(), b"chul-bold", b"namu"]);
+        assert_eq!(order(&faces, false, false), [b"chul-light".as_slice(), b"namu"]);
+        assert_eq!(order(&faces, false, true), [b"chul-bold".as_slice(), b"chul-light", b"namu"]);
+        // Missing families degrade in order; a serif request without Sangjang degrades to the sans
+        // face, and a bold request without Bold draws Light — no weight is ever synthesized.
+        let without_sangjang = [
+            kore("Hakgyoansim Namu", "Light", b"namu-light"),
+            kore("Hakgyoansim Namu", "Regular", b"namu"),
+            kore("Hakgyoansim Chulseokbu TTF", "Light", b"chul-light"),
+            kore("Hakgyoansim Chulseokbu TTF", "Bold", b"chul-bold"),
+        ];
+        assert_eq!(order(&without_sangjang, true, false), [b"chul-light".as_slice(), b"namu"]);
+        assert_eq!(order(&without_sangjang, true, true), [b"chul-bold".as_slice(), b"namu"]);
+        let without_chulseokbu = [
+            kore("Hakgyoansim Namu", "Light", b"namu-light"),
+            kore("Hakgyoansim Namu", "Regular", b"namu"),
+            kore("Hakgyoansim Sangjang R", "Regular", b"sangjang"),
+        ];
+        assert_eq!(order(&without_chulseokbu, true, false), [b"sangjang".as_slice(), b"namu"]);
+        assert_eq!(order(&without_chulseokbu, true, true), [b"sangjang".as_slice(), b"namu"]);
+        assert_eq!(order(&without_chulseokbu, false, true), [b"namu".as_slice()]);
+        let without_namu = [
+            kore("Hakgyoansim Sangjang R", "Regular", b"sangjang"),
+            kore("Hakgyoansim Chulseokbu TTF", "Light", b"chul-light"),
+            kore("Hakgyoansim Chulseokbu TTF", "Bold", b"chul-bold"),
+        ];
+        assert_eq!(order(&without_namu, true, false), [b"sangjang".as_slice(), b"chul-light"]);
+        // The script default itself degrades to the old rule (first Kore Regular): Sangjang.
+        assert_eq!(order(&without_namu, false, false), [b"chul-light".as_slice(), b"sangjang"]);
+        assert!(
+            korean_faces_for_style(
+                &[CraftFont { family: "BIZ UDPGothic", style: "Regular", scripts: &["Jpan"], bytes: b"not-korean" }],
+                false,
+                false
+            )
+            .is_empty()
+        );
+        assert!(korean_faces_for_style(&[], true, true).is_empty());
     }
 
     #[test]
@@ -401,5 +492,15 @@ mod tests {
         assert_eq!(ui_korean_fonts().len(), CRAFT_FONTS.iter().filter(|f| f.covers("Kore")).count());
         assert_eq!(document_korean_font().is_some(), CRAFT_FONTS.iter().any(|f| f.covers("Kore")));
         assert!(document_korean_font().is_none_or(|f| f.covers("Kore")));
+        for (serif, bold) in [(false, false), (false, true), (true, false), (true, true)] {
+            let styled = document_korean_fonts_for_style(serif, bold);
+            assert_eq!(styled.is_empty(), !CRAFT_FONTS.iter().any(|f| f.covers("Kore")));
+            assert!(styled.iter().all(|f| f.covers("Kore")));
+            // The style's own face leads; the script default (Namu) is never dropped from the chain.
+            assert!(styled.last().is_some_and(|f| f.family == "Hakgyoansim Namu") || CRAFT_FONTS.iter().all(|f| f.family != "Hakgyoansim Namu"));
+        }
+        if CRAFT_FONTS.iter().any(|f| f.family == "Hakgyoansim Namu") {
+            assert_eq!(document_korean_font().map(|f| f.family), Some("Hakgyoansim Namu"));
+        }
     }
 }
