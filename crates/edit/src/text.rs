@@ -53,7 +53,7 @@ use fallback::{
 };
 #[cfg(test)]
 use fallback::{add_type3_font, is_type3_fallback};
-pub(crate) use fallback::{glyph_path, type3_font_dict, unique_font_name};
+pub(crate) use fallback::{glyph_path, is_korean, korean_face_list, no_korean_font, type3_font_dict, unique_font_name};
 use interp::{Origin, Paint, union};
 pub(crate) use lines::{
     ContentStream, FormBudget, Read, content_streams, content_streams_within, dict_in_place, drawn_before_damage, first_op_after_damage, form_call,
