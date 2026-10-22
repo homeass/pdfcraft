@@ -874,6 +874,7 @@ pub(crate) fn lost_focus_once(r: &egui::Response, had: &mut bool) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use super::layout::real_italic;
     use super::*;
 
     /// Formatting applied restarts the rows' alignments by text with the box's history: a Redo
@@ -998,6 +999,19 @@ C", &picked
         assert_eq!(f(F::Helvetica, true, false), FontFamily::Name("semibold".into()));
         assert_eq!(f(F::Helvetica, false, true), FontFamily::Proportional);
         assert_eq!(f(F::Helvetica, true, true), FontFamily::Name("semibold".into()));
+    }
+
+    #[test]
+    fn the_synthetic_slant_stays_off_for_the_real_italic_faces() {
+        let look =
+            |family: pdfcraft_engine::FontFamily, bold: bool, italic: bool| pdfcraft_engine::AddedText { family, bold, italic, ..Default::default() };
+        use pdfcraft_engine::FontFamily as F;
+        assert!(real_italic(&look(F::Times, false, true)), "Tinos Italic is already slanted");
+        assert!(real_italic(&look(F::Times, true, true)), "Tinos Bold Italic is already slanted");
+        assert!(!real_italic(&look(F::Times, false, false)));
+        assert!(!real_italic(&look(F::Times, true, false)));
+        assert!(!real_italic(&look(F::Helvetica, false, true)), "Inter has no oblique: keep the synthetic lean");
+        assert!(!real_italic(&look(F::Courier, false, true)), "JetBrains Mono has no oblique: keep the synthetic lean");
     }
 
     #[test]
