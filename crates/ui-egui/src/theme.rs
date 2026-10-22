@@ -366,6 +366,13 @@ fn font_definitions_for_platform(prefer_hans: bool, platform: FontPolicyPlatform
     add(&mut fonts, "Inter-Medium", include_bytes!("../../../assets/fonts/Inter-Medium.ttf"));
     add(&mut fonts, "Inter-SemiBold", include_bytes!("../../../assets/fonts/Inter-SemiBold.ttf"));
     add(&mut fonts, "JetBrainsMono", include_bytes!("../../../assets/fonts/JetBrainsMono-Regular.ttf"));
+    // Tinos stands in for Times in the paragraph editor, the font picker and the Header & Footer
+    // preview: it is metric-compatible with Times New Roman, so the preview's line breaks and
+    // widths match the standard-14 Times the engine commits to the PDF.
+    add(&mut fonts, "Tinos", include_bytes!("../../../assets/fonts/Tinos-Regular.ttf"));
+    add(&mut fonts, "Tinos-Bold", include_bytes!("../../../assets/fonts/Tinos-Bold.ttf"));
+    add(&mut fonts, "Tinos-Italic", include_bytes!("../../../assets/fonts/Tinos-Italic.ttf"));
+    add(&mut fonts, "Tinos-BoldItalic", include_bytes!("../../../assets/fonts/Tinos-BoldItalic.ttf"));
     fonts.families.entry(FontFamily::Proportional).or_default().insert(0, "Inter".to_owned());
     fonts.families.entry(FontFamily::Monospace).or_default().insert(0, "JetBrainsMono".to_owned());
     // Keep missing Latin/Cyrillic letters in the app's own faces (for example Bulgarian ѝ,
@@ -404,7 +411,14 @@ fn font_definitions_for_platform(prefer_hans: bool, platform: FontPolicyPlatform
         }
     }
     let fallback: Vec<String> = fonts.families[&FontFamily::Proportional].clone();
-    for (fam, primary) in [("medium", "Inter-Medium"), ("semibold", "Inter-SemiBold")] {
+    for (fam, primary) in [
+        ("medium", "Inter-Medium"),
+        ("semibold", "Inter-SemiBold"),
+        ("serif", "Tinos"),
+        ("serif-bold", "Tinos-Bold"),
+        ("serif-italic", "Tinos-Italic"),
+        ("serif-bold-italic", "Tinos-BoldItalic"),
+    ] {
         let mut stack = vec![primary.to_owned()];
         stack.extend(fallback.iter().cloned());
         fonts.families.insert(FontFamily::Name(fam.into()), stack);

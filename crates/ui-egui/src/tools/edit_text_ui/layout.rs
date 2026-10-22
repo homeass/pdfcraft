@@ -25,13 +25,35 @@ pub(super) fn look_of(b: &pdfcraft_engine::TextBlock) -> pdfcraft_engine::AddedT
     source_look(&b.base_font, b.size, b.color, b.bold, b.italic)
 }
 
+/// The egui family that stands in for a document font in previews: Times renders in the Tinos
+/// families (metric-compatible with Times New Roman, so the preview's line breaks and widths match
+/// the standard-14 Times the engine commits), Courier in the monospaced UI face, and Helvetica and
+/// anything else in the proportional UI face. There is no Inter oblique, so italic sans text
+/// previews upright.
+pub(crate) fn preview_family(family: pdfcraft_engine::FontFamily, bold: bool, italic: bool) -> FontFamily {
+    match (family, bold, italic) {
+        (pdfcraft_engine::FontFamily::Courier, _, _) => FontFamily::Monospace,
+        (pdfcraft_engine::FontFamily::Times, bold, italic) => FontFamily::Name(
+            match (bold, italic) {
+                (false, false) => "serif",
+                (true, false) => "serif-bold",
+                (false, true) => "serif-italic",
+                (true, true) => "serif-bold-italic",
+            }
+            .into(),
+        ),
+        (pdfcraft_engine::FontFamily::Helvetica, bold, _) => {
+            if bold {
+                FontFamily::Name("semibold".into())
+            } else {
+                FontFamily::Proportional
+            }
+        }
+    }
+}
+
 pub(crate) fn editor_font(look: &pdfcraft_engine::AddedText, size: f32) -> FontId {
-    let family = match (look.family, look.bold) {
-        (pdfcraft_engine::FontFamily::Courier, _) => FontFamily::Monospace,
-        (_, true) => FontFamily::Name("semibold".into()),
-        (_, false) => FontFamily::Proportional,
-    };
-    FontId::new(size, family)
+    FontId::new(size, preview_family(look.family, look.bold, look.italic))
 }
 
 pub(super) fn color32(color: [f64; 3]) -> Color32 {
