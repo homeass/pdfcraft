@@ -1,7 +1,8 @@
 use super::draw::{draw, params};
-use super::layout::{first_undrawable, is_thai, nums, shaped_arabic, thai_error};
+use super::layout::{first_undrawable, is_thai, korean_faces, nums, shaped_arabic, thai_error};
 use super::types::{Added, AddedImage, AddedText, CHAR_SPACING_LIMIT, Family, Ink, MarkerScan, TAG};
 use super::{Content, Dict, Document, EditError, GlyphError, MarkKind, ObjRef, Object, Stream, align_from, check, contents, page_list, place_tagged};
+use crate::text::is_korean;
 
 /// A text item's gray or CMYK ink. Items written before inks, and an ink out of range or not
 /// made only of numbers (a `/Gray` name, a `/CMYK` entry that isn't a number), have none: the
@@ -182,6 +183,12 @@ fn validate(c: &Content) -> Result<(), EditError> {
             if t.text.chars().any(is_thai) && pdfcraft_fonts::document_thai_font().is_none() {
                 return Err(thai_error(GlyphError::NoFont, &t.text));
             }
+            // Korean is drawn with the craft-fonts Korean faces, never by the standard fonts:
+            // without them the refusal is the replacement path's Korean-font message, not the
+            // generic one. (Courier has no Korean mono face; it draws the plain faces.)
+            if t.text.chars().any(is_korean) {
+                korean_faces(t)?;
+            }
             // Without the Arabic face, `draw` decides for the Arabic letters themselves (#403): a new
             // item is refused with what's missing, and one that already holds Arabic stays movable.
             // Everything else in it is drawn in the standard font, so it still has to fit.
@@ -327,7 +334,8 @@ pub fn isolate_content(doc: &mut Document, page: usize, index: usize) -> Result<
 }
 
 /// The Type 3 fonts an Arabic item's stream shows text with. Each item has its own (`draw_shaped`
-/// names them so), so they go when the item is replaced or deleted.
+/// names them so), so they go when the item is replaced or deleted. Korean items' fonts are named
+/// `PCKo…` (see `draw_laid_shaped`).
 fn own_fonts(doc: &Document, obj: ObjRef) -> Vec<Vec<u8>> {
     let Object::Stream(s) = &*doc.get(obj) else { return Vec::new() };
     // The stream is one this writer put there, so its decode is bounded by the stream itself: the
@@ -336,8 +344,11 @@ fn own_fonts(doc: &Document, obj: ObjRef) -> Vec<Vec<u8>> {
     let limit = pdfcraft_cos::MAX_PAGE_DECODED.max(s.raw.len().saturating_mul(16));
     let Ok(data) = s.decoded_within(limit) else { return Vec::new() };
     // Each name once: a stream that repeats a name is not copied out once per use.
-    let names: std::collections::BTreeSet<&[u8]> =
-        data.split(u8::is_ascii_whitespace).filter_map(|w| w.strip_prefix(b"/")).filter(|w| w.starts_with(b"PCAr")).collect();
+    let names: std::collections::BTreeSet<&[u8]> = data
+        .split(u8::is_ascii_whitespace)
+        .filter_map(|w| w.strip_prefix(b"/"))
+        .filter(|w| w.starts_with(b"PCAr") || w.starts_with(b"PCKo"))
+        .collect();
     names.into_iter().map(<[u8]>::to_vec).collect()
 }
 
