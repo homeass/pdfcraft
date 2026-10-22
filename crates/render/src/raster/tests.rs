@@ -6473,6 +6473,7 @@ fn non_embedded_korean_cid_fonts_draw_with_a_craft_fonts_face() {
     for base_font in ["HYSMyeongJo-Medium", "HYGothic-Medium"] {
         korean_cid_substitute_draws(base_font, "Korea1");
     }
+    korean_fallback_draws_the_style_faces(CidFamily::AdobeKorea1);
 }
 
 /// The same for a non-embedded Type0 font whose descendant declares the bare Adobe/KR
@@ -6483,6 +6484,7 @@ fn non_embedded_adobe_kr_cid_fonts_draw_with_a_craft_fonts_face() {
     for base_font in ["HYSMyeongJo-Medium", "HYGothic-Medium"] {
         korean_cid_substitute_draws(base_font, "KR");
     }
+    korean_fallback_draws_the_style_faces(CidFamily::Custom { registry: b"Adobe".to_vec(), ordering: b"KR".to_vec() });
 }
 
 /// A one-page PDF with a non-embedded Korean Type0 font whose descendant declares Adobe
@@ -6522,6 +6524,52 @@ fn korean_cid_substitute_draws(base_font: &str, ordering: &str) {
     }
     // 한국 at 40 pt in the display-weight Namu covers well over a few hundred dark pixels.
     assert!(inked > 300, "{base_font} ({ordering}): 한국 is drawn ({inked} dark pixels)");
+}
+
+/// The substitute for a non-embedded Korean CID font is the style's own craft face, not one
+/// face for everything: the 명조 name draws Hakgyoansim Sangjang, the 고딕 name Hakgyoansim
+/// Chulseokbu Light, and a bold 고딕 request Chulseokbu Bold. Skipped when the build lacks
+/// those faces.
+fn korean_fallback_draws_the_style_faces(family: CidFamily) {
+    use hayro::hayro_interpret::font::FallbackFontQuery;
+    use hayro::hayro_interpret::hayro_cmap::CharacterCollection;
+    let got = |name: &str, bold: bool| {
+        let query = FontQuery::Fallback(FallbackFontQuery {
+            post_script_name: Some(name.into()),
+            character_collection: Some(CharacterCollection { family: family.clone(), supplement: 0 }),
+            is_bold: bold,
+            font_weight: if bold { 700 } else { 400 },
+            ..FallbackFontQuery::default()
+        });
+        super::korean_fallback(&query).map(|(data, _)| data)
+    };
+    let want = |serif: bool, bold: bool| pdfcraft_fonts::document_korean_fonts_for_style(serif, bold).into_iter().next().map(|f| f.bytes);
+    for (name, serif, bold) in [("HYSMyeongJo-Medium", true, false), ("HYGoThic-Medium", false, false), ("HYGoThic-Bold", false, true)] {
+        let (Some(drawn), Some(expected)) = (got(name, bold), want(serif, bold)) else {
+            eprintln!("built without the Korean craft faces for {name} (set CRAFT_FONTS_DIR to a checkout with them): nothing to check");
+            continue;
+        };
+        assert_eq!((*drawn).as_ref(), expected, "{name} draws the style's own craft face");
+    }
+}
+
+#[test]
+fn korean_font_names_pick_myeongjo_or_gothic() {
+    use super::KoreanFace::{Gothic, Myeongjo};
+    for (name, serif, bold, face) in [
+        ("HYSMyeongJo-Medium", false, false, Myeongjo),
+        ("HYSMyeongJoStd-Medium-Acro", false, false, Myeongjo),
+        ("BatangChe-Regular", false, false, Myeongjo),
+        ("HYGoThic-Medium", true, false, Gothic { bold: false }),
+        ("HYRgoth-Regular", true, false, Gothic { bold: false }),
+        ("GulimChe", false, false, Gothic { bold: false }),
+        ("Dotum-Bold", true, true, Gothic { bold: true }),
+        ("HYGoThic-Medium", false, true, Gothic { bold: true }),
+        ("Unknown-Korean", true, false, Myeongjo),
+        ("Unknown-Korean", false, false, Gothic { bold: false }),
+    ] {
+        assert_eq!(super::korean_face_for(name, serif, bold), face, "{name}");
+    }
 }
 
 // #3601: UniJIS-UCS2-HW-H maps code 0x0020 to CID 231 / U+2002. The PDF's
