@@ -177,17 +177,20 @@ fn traditional_chinese_keeps_an_installed_face_when_hans_is_embedded() {
 }
 
 /// The serif families the paragraph editor, font picker and Header & Footer preview use are
-/// registered with the Tinos bytes and resolve to glyphs.
+/// registered with the Tinos bytes when the craft-fonts input ships them and with the bundled
+/// Inter when it does not: the preview never loses the family, only the face.
 #[test]
 fn the_serif_families_are_registered_and_resolve() {
+    let tinos = |style: &str| pdfcraft_fonts::CRAFT_FONTS.iter().find(|f| f.family == "Tinos" && f.style == style).map(|f| f.bytes);
     let defs = font_definitions_for(false);
-    for (family, name, bytes) in [
-        ("serif", "Tinos", include_bytes!("../../../assets/fonts/Tinos-Regular.ttf").as_slice()),
-        ("serif-bold", "Tinos-Bold", include_bytes!("../../../assets/fonts/Tinos-Bold.ttf").as_slice()),
-        ("serif-italic", "Tinos-Italic", include_bytes!("../../../assets/fonts/Tinos-Italic.ttf").as_slice()),
-        ("serif-bold-italic", "Tinos-BoldItalic", include_bytes!("../../../assets/fonts/Tinos-BoldItalic.ttf").as_slice()),
+    for (family, name, style) in [
+        ("serif", "Tinos", "Regular"),
+        ("serif-bold", "Tinos-Bold", "Bold"),
+        ("serif-italic", "Tinos-Italic", "Italic"),
+        ("serif-bold-italic", "Tinos-BoldItalic", "BoldItalic"),
     ] {
-        assert_eq!(defs.font_data[name].font, bytes, "{family}");
+        let want = tinos(style).unwrap_or(pdfcraft_fonts::INTER_REGULAR);
+        assert_eq!(defs.font_data[name].font.as_ref().as_ref(), want, "{family}");
         assert_eq!(defs.families[&FontFamily::Name(family.into())][0], name, "{family}");
     }
     let mut fonts = hinting_test_fonts(FontPolicyPlatform::Other);
