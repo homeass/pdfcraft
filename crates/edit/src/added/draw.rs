@@ -1,11 +1,13 @@
 use super::layout::{
-    Piece, arabic_error, hebrew_error, is_arabic, is_hebrew, is_thai, latin_width, lines, norm, shaped_layout, text_rect, thai_error, wrapped,
+    Piece, arabic_error, hebrew_error, is_arabic, is_hebrew, is_thai, korean_faces, korean_error, latin_width, lines, norm, shaped_layout, text_rect,
+    thai_error, wrapped,
 };
 use super::types::{AddedText, Align, Family};
 use super::{
-    Content, Dict, Document, EditError, GlyphError, GlyphOutline, HashMap, HashSet, ObjRef, Object, PdfString, ShapedCluster, ShapedScript, Stream,
-    literal, matrix_number, n, shaped_glyph, win_ansi,
+    Content, CraftFont, Dict, Document, EditError, GlyphError, GlyphOutline, HashMap, HashSet, ObjRef, Object, PdfString, ShapedCluster, ShapedScript,
+    Stream, craft_has, japanese_glyph_from, literal, matrix_number, n, shaped_glyph, win_ansi,
 };
+use crate::text::is_korean;
 
 fn font_name(base: &str) -> String {
     format!("PCF{}", base.replace('-', ""))
@@ -27,11 +29,36 @@ fn draw_shaped(doc: &mut Document, t: &AddedText, taken: &Dict, fonts: &mut Dict
         .into_iter()
         .map(|(line, rtl)| shaped_layout(t, &line, rtl).map(|(pieces, w)| (line, rtl, pieces, w)))
         .collect::<Result<Vec<_>, _>>()?;
-    draw_laid_shaped(doc, t, &laid, taken, fonts, out, shaped_glyph)
+    // The item's Korean faces (empty without Korean): the head face names the fonts, and each
+    // character's outline comes from the first face that has it.
+    let korean = korean_faces(t).unwrap_or_default();
+    draw_laid_shaped(
+        doc,
+        t,
+        &laid,
+        taken,
+        fonts,
+        out,
+        |script, id| match script {
+            ShapedScript::Korean => korean_outline(&korean, id),
+            script => shaped_glyph(script, id),
+        },
+        korean.first().map(|f| f.family),
+    )
+}
+
+/// The outline of the Korean character `id` (a Unicode code point, see the layout's
+/// `shape_korean`) from the first face in `faces` that has it.
+fn korean_outline(faces: &[&CraftFont], id: u32) -> Result<GlyphOutline, GlyphError> {
+    let ch = char::from_u32(id).ok_or(GlyphError::Missing)?;
+    let face = faces.iter().find(|f| craft_has(f, ch)).ok_or(GlyphError::Missing)?;
+    japanese_glyph_from(face, ch)
 }
 
 /// [`draw_shaped`] for lines that are already laid out. `outline` is the source of glyph outlines
-/// for a script's face (the craft-fonts faces, or a stand-in in tests).
+/// for a script's face (the craft-fonts faces, or a stand-in in tests). `korean_family` is the
+/// family of the item's head Korean face, which names the fonts of an all-Korean chunk.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn draw_laid_shaped(
     doc: &mut Document,
     t: &AddedText,
@@ -40,6 +67,7 @@ pub(super) fn draw_laid_shaped(
     fonts: &mut Dict,
     out: &mut Vec<u8>,
     outline: impl Fn(ShapedScript, u32) -> Result<GlyphOutline, GlyphError>,
+    korean_family: Option<&'static str>,
 ) -> Result<(), EditError> {
     let r = text_rect(t);
     let latin = font_name(t.family.base_font(t.bold, t.italic));
@@ -66,6 +94,7 @@ pub(super) fn draw_laid_shaped(
                     ShapedScript::Arabic => arabic_error(e, &c.text),
                     ShapedScript::Hebrew => hebrew_error(e, &c.text),
                     ShapedScript::Thai => thai_error(e, &c.text),
+                    ShapedScript::Korean => korean_error(e, &c.text),
                 })?);
             }
         }
@@ -74,14 +103,17 @@ pub(super) fn draw_laid_shaped(
     let mut taken_names: HashSet<Vec<u8>> = taken.iter().chain(fonts.iter()).map(|(name, _)| name.clone()).collect();
     let mut names = Vec::new();
     for chunk in keys.chunks(GLYPHS_PER_FONT) {
-        let font = type3_shaped(doc, chunk, &outlines);
+        let font = type3_shaped(doc, chunk, &outlines, korean_family);
         // A name no font on the page has, so items never replace each other's fonts (object
         // numbers alone don't do: a full save renumbers objects but keeps resource names).
-        let mut name = format!("PCAr{}", font.num);
+        // All-Korean chunks take the Korean script's `PCKo` prefix; the shaped scripts keep the
+        // historical `PCAr`. `own_fonts` collects both.
+        let prefix = if chunk.iter().all(|c| c.script == ShapedScript::Korean) { "PCKo" } else { "PCAr" };
+        let mut name = format!("{prefix}{}", font.num);
         let mut suffix = 0usize;
         while taken_names.contains(name.as_bytes()) {
             suffix = suffix.saturating_add(1);
-            name = format!("PCAr{}_{suffix}", font.num);
+            name = format!("{prefix}{}_{suffix}", font.num);
         }
         taken_names.insert(name.clone().into_bytes());
         fonts.set(name.clone().into_bytes(), Object::Ref(font));
@@ -152,7 +184,14 @@ fn cluster_key(c: &ShapedCluster) -> ClusterKey<'_> {
 }
 
 /// A Type 3 font with `clusters` as codes 1…, each drawn from its script face's glyph `outlines`.
-fn type3_shaped(doc: &mut Document, clusters: &[&ShapedCluster], outlines: &HashMap<(ShapedScript, u32), GlyphOutline>) -> ObjRef {
+/// `korean_family` is the item's head Korean face's family, which names an all-Korean chunk (the
+/// face is chosen per item, so [`ShapedScript::font`] can't know it).
+fn type3_shaped(
+    doc: &mut Document,
+    clusters: &[&ShapedCluster],
+    outlines: &HashMap<(ShapedScript, u32), GlyphOutline>,
+    korean_family: Option<&'static str>,
+) -> ObjRef {
     let mut charprocs = Dict::new();
     let mut differences = vec![Object::Int(1)];
     let mut widths = Vec::with_capacity(clusters.len());
@@ -204,11 +243,13 @@ fn type3_shaped(doc: &mut Document, clusters: &[&ShapedCluster], outlines: &Hash
     // The face's family when every glyph comes from one script; without the face, the script's
     // name (as Arabic items were always named).
     let family = match clusters.first().map(|c| c.script).filter(|s| clusters.iter().all(|c| c.script == *s)) {
+        Some(ShapedScript::Korean) => korean_family.unwrap_or("Korean"),
         Some(script) => script.font().map_or(
             match script {
                 ShapedScript::Arabic => "Arabic",
                 ShapedScript::Hebrew => "Hebrew",
                 ShapedScript::Thai => "Thai",
+                ShapedScript::Korean => "Korean",
             },
             |f| f.family,
         ),
@@ -274,6 +315,7 @@ pub(super) fn draw(doc: &mut Document, c: &Content, view: [f64; 6], taken: &Dict
             if t.text.chars().any(is_thai)
                 || face_or_new(is_arabic, pdfcraft_fonts::document_arabic_font().is_some())
                 || face_or_new(is_hebrew, pdfcraft_fonts::document_hebrew_font(false).is_some())
+                || face_or_new(is_korean, korean_faces(t).is_ok())
             {
                 draw_shaped(doc, t, taken, &mut fonts, &mut out)?;
                 res.set(b"Font".to_vec(), Object::Dict(fonts));
