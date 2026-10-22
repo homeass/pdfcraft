@@ -1,10 +1,11 @@
 //! Embeds the fonts of the optional craft-fonts build input (`CRAFT_FONTS_DIR`) as `CRAFT_FONTS`.
 //! The recipe is craft-fonts' `docs/integration.md`; unset, `CRAFT_FONTS` is empty. It only reads
-//! the local checkout (no network). On wasm32 it embeds only the UI faces (BIZ UDPGothic Regular
-//! and any `Arab`, `Telu`, `Hebr`, `Thai`, `Deva` or `Kore` face), to keep the web build within hosting
-//! limits (Cloudflare Pages: 25 MiB per file). Native builds also read the optional
-//! `fonts/simplified-chinese-manifest.txt` (LXGW WenKai Lite); it is never embedded on wasm.
-//! `CRAFT_FONTS_REQUIRED` makes both the checkout and that native manifest required.
+//! the local checkout (no network). On wasm32 it embeds only the UI faces (BIZ UDPGothic Regular,
+//! any `Arab`, `Telu`, `Hebr`, `Thai` or `Deva` face, and the Korean script and sans faces), to
+//! keep the web build within hosting limits (Cloudflare Pages: 25 MiB per file). Native builds
+//! also read the optional `fonts/simplified-chinese-manifest.txt` (LXGW WenKai Lite); it is never
+//! embedded on wasm. `CRAFT_FONTS_REQUIRED` makes both the checkout and that native manifest
+//! required.
 
 use std::fmt::Write as _;
 use std::path::PathBuf;
@@ -104,8 +105,11 @@ fn manifest(dir: &std::path::Path, manifest: &std::path::Path, wasm: bool, stric
         let hebrew = scripts.split(',').any(|s| s.trim() == "Hebr");
         // Devanagari too, for the Hindi interface (one small face).
         let devanagari = scripts.split(',').any(|s| s.trim() == "Deva");
-        // And the Korean ones (small), for Hangul interface text on the web.
-        let korean = scripts.split(',').any(|s| s.trim() == "Kore");
+        // Korean: the script identity (Hakgyoansim Namu) and the sans body face (Chulseokbu Light)
+        // stay on the web; the serif (Sangjang) and Chulseokbu Bold stay desktop. The five Kore
+        // faces total ~5.4 MB, more than the rest of the web input together.
+        let korean = scripts.split(',').any(|s| s.trim() == "Kore")
+            && (*family == "Hakgyoansim Namu" || (*family == "Hakgyoansim Chulseokbu TTF" && *style == "Light"));
         let web_face = (*family == "BIZ UDPGothic" && *style == "Regular")
             || arabic
             || telugu
