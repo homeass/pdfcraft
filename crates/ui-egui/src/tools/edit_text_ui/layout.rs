@@ -56,12 +56,20 @@ pub(crate) fn editor_font(look: &pdfcraft_engine::AddedText, size: f32) -> FontI
     FontId::new(size, preview_family(look.family, look.bold, look.italic))
 }
 
+/// Whether the optional craft-fonts input really ships this Tinos style. theme.rs falls back to
+/// Inter bytes under the same family names when it does not, so the name alone must never be
+/// taken as proof of a real oblique design.
+fn tinos_style_ships(style: &str) -> bool {
+    pdfcraft_fonts::CRAFT_FONTS.iter().any(|f| f.family == "Tinos" && f.style == style)
+}
+
 /// Whether the preview draws `look` with an already-slanted Tinos design. epaint leans
-/// `TextFormat.italics` text with a synthetic shear, and on the real italic families that
-/// would slant the glyphs twice; where no oblique UI face exists (Inter, JetBrains Mono) the
-/// synthetic lean stays the only slant on offer.
+/// `TextFormat.italics` text with a synthetic shear, and on a real italic that would slant the
+/// glyphs twice; the shear stays on whenever the slant shown is only synthetic — on Inter or
+/// JetBrains Mono, and on the Inter bytes that back the serif names without the craft-fonts
+/// input. Only Times asks for a real oblique, so only Times suppresses the shear.
 pub(crate) fn real_italic(look: &pdfcraft_engine::AddedText) -> bool {
-    matches!(preview_family(look.family, look.bold, look.italic), FontFamily::Name(n) if n.as_ref() == "serif-italic" || n.as_ref() == "serif-bold-italic")
+    look.italic && look.family == pdfcraft_engine::FontFamily::Times && tinos_style_ships(if look.bold { "BoldItalic" } else { "Italic" })
 }
 
 pub(super) fn color32(color: [f64; 3]) -> Color32 {
