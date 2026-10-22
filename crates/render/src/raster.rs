@@ -113,10 +113,12 @@ fn japanese_fallback(query: &FontQuery) -> Option<(FontData, u32)> {
     Some((Arc::new(face.bytes), 0))
 }
 
-/// A Korean face from craft-fonts for a CID font of the Adobe-Korea1 collection that the PDF
-/// doesn't embed (`HYSMyeongJo-Medium`, `HYGothic-Medium`, …). 학교안심 나무 is one handwritten-style
-/// text design, so serif and bold requests all draw it. `None` for every other font, and when
-/// PdfCraft was built without a Korean craft face.
+/// A Korean face from craft-fonts for a CID font of the Adobe-Korea1 collection (or the bare
+/// Adobe/KR registry-ordering pair) that the PDF doesn't embed (`HYSMyeongJo-Medium`,
+/// `HYGothic-Medium`, …): a 명조 name draws the serif Hakgyoansim Sangjang, a 고딕 name the sans
+/// Hakgyoansim Chulseokbu (Bold for a bold request), and any other name follows the font
+/// descriptor. Missing faces degrade in [`pdfcraft_fonts::document_korean_fonts_for_style`]'s
+/// order. `None` for every other font, and when PdfCraft was built without a Korean craft face.
 fn korean_fallback(query: &FontQuery) -> Option<(FontData, u32)> {
     let FontQuery::Fallback(f) = query else { return None };
     // A non-embedded font may declare the predefined Adobe-Korea1 collection or the bare Adobe/KR
@@ -129,7 +131,9 @@ fn korean_fallback(query: &FontQuery) -> Option<(FontData, u32)> {
     if !is_korean {
         return None;
     }
-    let face = pdfcraft_fonts::document_korean_font()?;
+    let bold = f.is_bold || f.font_weight >= 600;
+    let serif = matches!(korean_face_for(f.post_script_name.as_deref().unwrap_or_default(), f.is_serif, bold), KoreanFace::Myeongjo);
+    let face = pdfcraft_fonts::document_korean_fonts_for_style(serif, bold).into_iter().next()?;
     Some((Arc::new(face.bytes), 0))
 }
 
@@ -150,6 +154,27 @@ fn japanese_face(name: &str, serif: bool, bold: bool) -> JapaneseFace {
         JapaneseFace::Gothic { bold }
     } else {
         JapaneseFace::Mincho
+    }
+}
+
+#[derive(Debug, PartialEq)]
+enum KoreanFace {
+    Myeongjo,
+    Gothic { bold: bool },
+}
+
+/// Which kind of Korean face stands in for the font named `name`: 명조 names (`HYSMyeongJo…`,
+/// `Batang`) a serif Myeongjo; 고딕 names (`…Gothic…` case-insensitively, so `HYGoThic` and
+/// `HYRgoth` both match, `Dotum`, `Gulim`) a sans Gothic; any other name by the font descriptor's
+/// serif flag.
+fn korean_face_for(name: &str, serif: bool, bold: bool) -> KoreanFace {
+    let name = name.to_ascii_lowercase();
+    if name.contains("myeong") || name.contains("batang") || name.contains("mingjo") {
+        KoreanFace::Myeongjo
+    } else if ["goth", "dotum", "gulim"].iter().any(|k| name.contains(k)) || !serif {
+        KoreanFace::Gothic { bold }
+    } else {
+        KoreanFace::Myeongjo
     }
 }
 
@@ -7839,6 +7864,34 @@ trailer << /Root 1 0 R >>
         for base_font in ["HYSMyeongJo-Medium", "HYGothic-Medium"] {
             korean_cid_substitute_draws(base_font, "Korea1");
         }
+        korean_fallback_draws_the_style_faces(CidFamily::AdobeKorea1);
+    }
+
+    /// The substitute for a non-embedded Korean CID font is the style's own craft face, not one
+    /// face for everything: the 명조 name draws Hakgyoansim Sangjang, the 고딕 name Hakgyoansim
+    /// Chulseokbu Light, and a bold 고딕 request Chulseokbu Bold. Skipped when the build lacks
+    /// those faces.
+    fn korean_fallback_draws_the_style_faces(family: CidFamily) {
+        use hayro::hayro_interpret::font::FallbackFontQuery;
+        use hayro::hayro_interpret::hayro_cmap::CharacterCollection;
+        let got = |name: &str, bold: bool| {
+            let query = FontQuery::Fallback(FallbackFontQuery {
+                post_script_name: Some(name.into()),
+                character_collection: Some(CharacterCollection { family: family.clone(), supplement: 0 }),
+                is_bold: bold,
+                font_weight: if bold { 700 } else { 400 },
+                ..FallbackFontQuery::default()
+            });
+            super::korean_fallback(&query).map(|(data, _)| data)
+        };
+        let want = |serif: bool, bold: bool| pdfcraft_fonts::document_korean_fonts_for_style(serif, bold).into_iter().next().map(|f| f.bytes);
+        for (name, serif, bold) in [("HYSMyeongJo-Medium", true, false), ("HYGoThic-Medium", false, false), ("HYGoThic-Bold", false, true)] {
+            let (Some(drawn), Some(expected)) = (got(name, bold), want(serif, bold)) else {
+                eprintln!("built without the Korean craft faces for {name} (set CRAFT_FONTS_DIR to a checkout with them): nothing to check");
+                continue;
+            };
+            assert_eq!((*drawn).as_ref(), expected, "{name} draws the style's own craft face");
+        }
     }
 
     /// The same for a non-embedded Type0 font whose descendant declares the bare Adobe/KR
@@ -7849,6 +7902,7 @@ trailer << /Root 1 0 R >>
         for base_font in ["HYSMyeongJo-Medium", "HYGothic-Medium"] {
             korean_cid_substitute_draws(base_font, "KR");
         }
+        korean_fallback_draws_the_style_faces(CidFamily::Custom { registry: b"Adobe".to_vec(), ordering: b"KR".to_vec() });
     }
 
     /// A one-page PDF with a non-embedded Korean Type0 font whose descendant declares Adobe
@@ -7974,6 +8028,25 @@ trailer << /Root 1 0 R >>
             ("Unknown-Japanese", false, false, Gothic { bold: false }),
         ] {
             assert_eq!(super::japanese_face(name, serif, bold), face, "{name}");
+        }
+    }
+
+    #[test]
+    fn korean_font_names_pick_myeongjo_or_gothic() {
+        use super::KoreanFace::{Gothic, Myeongjo};
+        for (name, serif, bold, face) in [
+            ("HYSMyeongJo-Medium", false, false, Myeongjo),
+            ("HYSMyeongJoStd-Medium-Acro", false, false, Myeongjo),
+            ("BatangChe-Regular", false, false, Myeongjo),
+            ("HYGoThic-Medium", true, false, Gothic { bold: false }),
+            ("HYRgoth-Regular", true, false, Gothic { bold: false }),
+            ("GulimChe", false, false, Gothic { bold: false }),
+            ("Dotum-Bold", true, true, Gothic { bold: true }),
+            ("HYGoThic-Medium", false, true, Gothic { bold: true }),
+            ("Unknown-Korean", true, false, Myeongjo),
+            ("Unknown-Korean", false, false, Gothic { bold: false }),
+        ] {
+            assert_eq!(super::korean_face_for(name, serif, bold), face, "{name}");
         }
     }
 
