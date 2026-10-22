@@ -381,19 +381,39 @@ fn no_korean_font() -> EditError {
 /// The faces a Type 3 replacement may draw `text` with, best first. Text with Hebrew takes the
 /// Hebrew face first (its Latin and digits too, so a line keeps one look), then the Korean face
 /// for mixed Hebrew–Hangul lines, then the Japanese faces and the bundled Latin one for anything
-/// still lacking; Korean text does the same with the Korean face; other text takes the Japanese
-/// faces, and the bundled Latin face behind them, which covers the Latin, Greek and Cyrillic
-/// letters they lack (#2593: the Japanese faces have no қ, ғ, ҳ, ә, ө, ү, ұ or һ).
+/// still lacking; Korean text does the same with the Korean faces — the script face (Hakgyoansim
+/// Namu) for plain text, the serif/sans and weight's own faces for a serif or bold request — then
+/// the Japanese faces, and the bundled Latin face behind them, which covers the Latin, Greek and
+/// Cyrillic letters they lack (#2593: the Japanese faces have no қ, ғ, ҳ, ә, ө, ү, ұ or һ).
 pub(crate) fn type3_faces(text: &str, family: crate::added::Family, bold: bool) -> Result<(Vec<&'static CraftFont>, Script), EditError> {
-    let japanese = pdfcraft_fonts::document_japanese_fonts_for_style(family == crate::added::Family::Times, bold);
+    let serif = family == crate::added::Family::Times;
+    let japanese = pdfcraft_fonts::document_japanese_fonts_for_style(serif, bold);
     let latin = pdfcraft_fonts::document_latin_fonts(bold);
     if !text.chars().any(crate::bidi::is_hebrew) {
         if text.chars().any(is_korean) {
-            // Hangul keeps its craft face (Hakgyoansim Namu) on the line, like Hebrew. Syllables are
-            // precomposed in Unicode, so one glyph per character draws them whole; a decomposed jamo
-            // sequence draws as its individual jamo.
-            let korean = pdfcraft_fonts::document_korean_font().ok_or_else(no_korean_font)?;
-            return Ok((std::iter::once(korean).chain(japanese).chain(latin).collect(), Script::Korean));
+            // Plain Hangul keeps the script face (Hakgyoansim Namu) first (#3981), taking a
+            // character it lacks from the sans face, then the Japanese faces. A serif or bold
+            // request draws the style's own faces instead (명조 → Hakgyoansim Sangjang, 고딕 →
+            // Hakgyoansim Chulseokbu), with the remaining Kore faces behind them. Syllables are
+            // precomposed in Unicode, so one glyph per character draws them whole; a decomposed
+            // jamo sequence draws as its individual jamo.
+            let korean: Vec<&CraftFont> = if !serif && !bold {
+                let namu = pdfcraft_fonts::document_korean_font().ok_or_else(no_korean_font)?;
+                std::iter::once(namu)
+                    .chain(pdfcraft_fonts::document_korean_fonts_for_style(false, false).into_iter().filter(|f| !std::ptr::eq(*f, namu)))
+                    .collect()
+            } else {
+                let heads = pdfcraft_fonts::document_korean_fonts_for_style(serif, bold);
+                if heads.is_empty() {
+                    return Err(no_korean_font());
+                }
+                heads
+                    .iter()
+                    .copied()
+                    .chain(pdfcraft_fonts::ui_korean_fonts().into_iter().filter(|f| !heads.iter().any(|h| std::ptr::eq(*h, *f))))
+                    .collect()
+            };
+            return Ok((korean.into_iter().chain(japanese).chain(latin).collect(), Script::Korean));
         }
         return Ok((japanese.into_iter().chain(latin).collect(), Script::Japanese));
     }
