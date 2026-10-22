@@ -31,8 +31,9 @@ pub(crate) use image::{
 use image::{rotate_knob, turn_degrees, turn_degrees_delta};
 #[cfg(test)]
 use layout::{DARK_EDITOR_FILL, contrast};
-pub(crate) use layout::{caret_color_on, editor_fill, editor_font, family_label_job, install_source_fonts};
+pub(crate) use layout::{caret_color_on, editor_fill, editor_font, family_label_job, install_source_fonts, preview_family};
 use layout::{color32, editor_galley, editor_job, look_of, luminance, source_look, unseen};
+
 const ACCENT: Color32 = Color32::from_rgb(0x14, 0x73, 0xE6);
 
 #[derive(Clone, Copy, PartialEq)]
@@ -1231,6 +1232,27 @@ C", &picked
             ),
             "the pick stays"
         );
+    }
+
+    /// The editor's font matrix is pinned without a GPU: Courier is monospaced whatever the
+    /// style, Times resolves to the four Tinos families, and Helvetica keeps the sans UI faces
+    /// (no Inter oblique exists, so its italic previews upright).
+    #[test]
+    fn the_editor_font_follows_family_weight_and_slant() {
+        let f = |family: pdfcraft_engine::FontFamily, bold: bool, italic: bool| {
+            editor_font(&pdfcraft_engine::AddedText { family, bold, italic, ..Default::default() }, 12.0).family
+        };
+        use pdfcraft_engine::FontFamily as F;
+        assert_eq!(f(F::Courier, false, false), FontFamily::Monospace);
+        assert_eq!(f(F::Courier, true, true), FontFamily::Monospace);
+        assert_eq!(f(F::Times, false, false), FontFamily::Name("serif".into()));
+        assert_eq!(f(F::Times, true, false), FontFamily::Name("serif-bold".into()));
+        assert_eq!(f(F::Times, false, true), FontFamily::Name("serif-italic".into()));
+        assert_eq!(f(F::Times, true, true), FontFamily::Name("serif-bold-italic".into()));
+        assert_eq!(f(F::Helvetica, false, false), FontFamily::Proportional);
+        assert_eq!(f(F::Helvetica, true, false), FontFamily::Name("semibold".into()));
+        assert_eq!(f(F::Helvetica, false, true), FontFamily::Proportional);
+        assert_eq!(f(F::Helvetica, true, true), FontFamily::Name("semibold".into()));
     }
 
     #[test]
