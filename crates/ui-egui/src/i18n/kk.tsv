@@ -2513,3 +2513,6 @@ animation effects	Off	Өшірулі
 	field names can't contain a period: {name}	өріс атауларында нүкте болмауы керек: {name}
 	two cells would both be named {name}	екі ұяшықтың да атауы {name} болар еді
 	a field named {name} already exists	{name} атты өріс бар
+	Hakgyoansim Namu	Hakgyoansim Namu (학교안심 나무)
+	Hakgyoansim Sangjang	Hakgyoansim Sangjang (학교안심 상장)
+	Hakgyoansim Chulseokbu	Hakgyoansim Chulseokbu (학교안심 출석부)

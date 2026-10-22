@@ -2934,6 +2934,9 @@ mod tests {
         let vi = Lang::from_code("vi").expect("vi registered");
         // Authoritative allowlist for intentional English-identical Vietnamese rows.
         const KEEP_AS_IS: &[&str] = &[
+            "Hakgyoansim Namu",
+            "Hakgyoansim Sangjang",
+            "Hakgyoansim Chulseokbu",
             "OK",
             "Digital ID",
             "ZIP",
