@@ -1,9 +1,9 @@
 use super::grouping::{across, is_centred, row_rect};
 use super::{
     BlockStyle, CraftFont, Dict, Document, EditError, HashMap, LineEdit, MAX_TYPE3_GLYPHS, Matrix, Metrics, Object, Op, PdfString, Pieces,
-    RangeStyle, TextBlock, TextLine, Type3Glyph, coincident_ops, content_streams, fallback_face, japanese_glyph_from, needs_type3, no_fallback_font,
-    no_glyph_for, page_dict, reveal_ops, rewritten_contents, source_encodes, source_family, source_program, source_show, source_space, source_width,
-    splice, type3_faces, type3_glyph, write_type3_glyphs,
+    RangeStyle, Script, TextBlock, TextLine, Type3Glyph, coincident_ops, content_streams, fallback_face, japanese_glyph_from, needs_type3,
+    no_fallback_font, no_glyph_for, page_dict, reveal_ops, rewritten_contents, source_encodes, source_family, source_program, source_show,
+    source_space, source_width, splice, type3_faces, type3_glyph, write_type3_glyphs,
 };
 
 // The draft is capped at 4 MiB; also bound the outline data prepared across all fallback faces.
@@ -13,6 +13,7 @@ const MAX_STYLED_FALLBACK_BATCHES: usize = 64;
 
 struct FallbackGroup {
     face: &'static CraftFont,
+    script: Script,
     seen: std::collections::HashSet<char>,
     glyphs: Vec<Type3Glyph>,
     positions: Vec<usize>,
@@ -157,7 +158,7 @@ impl CharacterPreparation<'_> {
         }
         drop(resolver);
         for group in fallback.groups {
-            let written = write_type3_glyphs(doc, fonts, group.face, false, group.glyphs, fallback.per_font);
+            let written = write_type3_glyphs(doc, fonts, group.face, group.script, group.glyphs, fallback.per_font);
             for name in &written.names {
                 let font = fonts
                     .get(name.as_bytes())
@@ -193,11 +194,11 @@ impl FallbackBuilder {
         let group_index = if let Some(index) = self.names.get(&key) {
             *index
         } else {
-            let (faces, _) = type3_faces(text, source_family(&source.base_font), source.bold)?;
+            let (faces, script) = type3_faces(text, source_family(&source.base_font), source.bold)?;
             let face = fallback_face(&faces, &[ch], |face, ch| japanese_glyph_from(face, ch).is_ok()).ok_or_else(|| no_fallback_font(text))?;
             let index = self.groups.iter().position(|group| std::ptr::eq(group.face, face)).unwrap_or_else(|| {
                 let index = self.groups.len();
-                self.groups.push(FallbackGroup { face, seen: Default::default(), glyphs: Vec::new(), positions: Vec::new() });
+                self.groups.push(FallbackGroup { face, script, seen: Default::default(), glyphs: Vec::new(), positions: Vec::new() });
                 index
             });
             self.names.insert(key, index);
