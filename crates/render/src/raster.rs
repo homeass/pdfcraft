@@ -86,7 +86,7 @@ impl RenderConfig {
         InterpreterSettings {
             ocg_overrides: self.layers.clone(),
             hide_comments: self.hide_comments,
-            font_resolver: Arc::new(move |query| japanese_fallback(query).or_else(|| standard(query))),
+            font_resolver: Arc::new(move |query| japanese_fallback(query).or_else(|| korean_fallback(query)).or_else(|| standard(query))),
             ..InterpreterSettings::default()
         }
     }
@@ -95,8 +95,9 @@ impl RenderConfig {
 /// A Japanese face from craft-fonts for a CID font of the Adobe-Japan1 collection that the PDF
 /// doesn't embed (`HeiseiMin-W3`, `KozGoPro-Medium`, …). hayro's own substitutes for fonts that
 /// aren't embedded are the Latin standard 14, so such text drew nothing. `None` for every other
-/// font, and when PdfCraft was built without craft-fonts. Only Japanese: no other CJK face is
-/// embedded whole.
+/// font, and when PdfCraft was built without craft-fonts. Korean is handled by
+/// [`korean_fallback`]; no other registered CJK ordering has a fallback because no other CJK
+/// face is embedded whole.
 fn japanese_fallback(query: &FontQuery) -> Option<(FontData, u32)> {
     let FontQuery::Fallback(f) = query else { return None };
     if f.character_collection.as_ref()?.family != CidFamily::AdobeJapan1 {
@@ -116,6 +117,19 @@ fn japanese_fallback(query: &FontQuery) -> Option<(FontData, u32)> {
             faces.iter().find(|c| c.family == "BIZ UDPGothic" && c.style == style).or(faces.first()).copied()
         }
     }?;
+    Some((Arc::new(face.bytes), 0))
+}
+
+/// A Korean face from craft-fonts for a CID font of the Adobe-Korea1 collection that the PDF
+/// doesn't embed (`HYSMyeongJo-Medium`, `HYGothic-Medium`, …). 학교안심 나무 is one handwritten-style
+/// text design, so serif and bold requests all draw it. `None` for every other font, and when
+/// PdfCraft was built without a Korean craft face.
+fn korean_fallback(query: &FontQuery) -> Option<(FontData, u32)> {
+    let FontQuery::Fallback(f) = query else { return None };
+    if f.character_collection.as_ref()?.family != CidFamily::AdobeKorea1 {
+        return None;
+    }
+    let face = pdfcraft_fonts::document_korean_font()?;
     Some((Arc::new(face.bytes), 0))
 }
 
