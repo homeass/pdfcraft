@@ -158,6 +158,22 @@ pub fn japanese_glyph_from(face: &crate::CraftFont, ch: char) -> Result<GlyphOut
     bounded_outline(&font, gid, width)
 }
 
+/// Whether `face` has a glyph for `c` (the charmap only; no outline is read).
+pub fn craft_has(face: &crate::CraftFont, c: char) -> bool {
+    FontRef::new(face.bytes).is_ok_and(|font| font.charmap().map(c).is_some())
+}
+
+/// The advance (em) of `c` in `face`, when the face has a usable glyph for it (the same width
+/// bounds as [`japanese_glyph_from`]).
+pub fn craft_advance(face: &crate::CraftFont, c: char) -> Option<f64> {
+    let font = FontRef::new(face.bytes).ok()?;
+    let loc = LocationRef::default();
+    let scale = 1.0 / font.metrics(Size::unscaled(), loc).units_per_em.max(1) as f64;
+    let gid = font.charmap().map(c)?;
+    let width = font.glyph_metrics(Size::unscaled(), loc).advance_width(gid).unwrap_or(0.0) as f64 * scale;
+    (width.is_finite() && width > 0.0).then_some(width)
+}
+
 /// Glyph `gid` of `font` in em units with advance `width`, bounded like [`japanese_glyph`].
 pub(crate) fn bounded_outline(font: &FontRef, gid: GlyphId, width: f64) -> Result<GlyphOutline, GlyphError> {
     let loc = LocationRef::default();
