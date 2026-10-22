@@ -1006,11 +1006,15 @@ C", &picked
         let look =
             |family: pdfcraft_engine::FontFamily, bold: bool, italic: bool| pdfcraft_engine::AddedText { family, bold, italic, ..Default::default() };
         use pdfcraft_engine::FontFamily as F;
-        assert!(real_italic(&look(F::Times, false, true)), "Tinos Italic is already slanted");
-        assert!(real_italic(&look(F::Times, true, true)), "Tinos Bold Italic is already slanted");
-        assert!(!real_italic(&look(F::Times, false, false)));
-        assert!(!real_italic(&look(F::Times, true, false)));
+        // Times+slant suppresses the shear exactly when the build input ships the matching oblique:
+        // the assertion must hold in craft and no-craft builds alike.
+        for (bold, style) in [(false, "Italic"), (true, "BoldItalic")] {
+            let ships = pdfcraft_fonts::CRAFT_FONTS.iter().any(|f| f.family == "Tinos" && f.style == style);
+            assert_eq!(real_italic(&look(F::Times, bold, true)), ships, "Tinos {style}");
+        }
+        assert!(!real_italic(&look(F::Times, false, false)), "upright never suppresses the shear");
         assert!(!real_italic(&look(F::Helvetica, false, true)), "Inter has no oblique: keep the synthetic lean");
+        assert!(!real_italic(&look(F::Helvetica, true, true)), "not even when bold");
         assert!(!real_italic(&look(F::Courier, false, true)), "JetBrains Mono has no oblique: keep the synthetic lean");
     }
 
