@@ -28,6 +28,7 @@ pub enum ShapedScript {
     Arabic,
     Hebrew,
     Thai,
+    Korean,
 }
 
 impl ShapedScript {
@@ -36,6 +37,7 @@ impl ShapedScript {
             Self::Arabic => crate::document_arabic_font(),
             Self::Hebrew => crate::document_hebrew_font(false),
             Self::Thai => crate::document_thai_font(),
+            Self::Korean => crate::document_korean_font(),
         }
     }
 }
@@ -44,10 +46,13 @@ fn face(script: ShapedScript) -> Option<&'static (FontRef<'static>, ShaperData)>
     static FACE: OnceLock<Option<(FontRef<'static>, ShaperData)>> = OnceLock::new();
     static HEBREW: OnceLock<Option<(FontRef<'static>, ShaperData)>> = OnceLock::new();
     static THAI: OnceLock<Option<(FontRef<'static>, ShaperData)>> = OnceLock::new();
+    // Korean is never shaped here: it draws one glyph per character (the editor's `shape_korean`),
+    // so it has no face cache.
     let cache = match script {
         ShapedScript::Arabic => &FACE,
         ShapedScript::Hebrew => &HEBREW,
         ShapedScript::Thai => &THAI,
+        ShapedScript::Korean => return None,
     };
     cache
         .get_or_init(|| {
@@ -102,11 +107,13 @@ fn shape_script(text: &str, rtl: bool, kind: ShapedScript) -> Result<Vec<ShapedC
         ShapedScript::Arabic => script::ARABIC,
         ShapedScript::Hebrew => script::HEBREW,
         ShapedScript::Thai => script::THAI,
+        ShapedScript::Korean => script::HANGUL,
     });
     // Preserve the historical Arabic per-character mapping; Hebrew and Thai marks stay with their base.
     buffer.set_cluster_level(match kind {
         ShapedScript::Arabic => BufferClusterLevel::Characters,
         ShapedScript::Hebrew | ShapedScript::Thai => BufferClusterLevel::MonotoneGraphemes,
+        ShapedScript::Korean => BufferClusterLevel::Characters,
     });
     let shaped = shaper.shape(buffer, ShapeOptions::new());
     // Clusters are byte offsets into `text`; a cluster shows the characters up to the next one.
