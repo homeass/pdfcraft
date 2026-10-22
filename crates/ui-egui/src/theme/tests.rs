@@ -176,6 +176,26 @@ fn traditional_chinese_keeps_an_installed_face_when_hans_is_embedded() {
     assert_eq!(installed_fallback_need(CjkPreference::Default, true), Need::Other);
 }
 
+/// The serif families the paragraph editor, font picker and Header & Footer preview use are
+/// registered with the Tinos bytes and resolve to glyphs.
+#[test]
+fn the_serif_families_are_registered_and_resolve() {
+    let defs = font_definitions_for(false);
+    for (family, name, bytes) in [
+        ("serif", "Tinos", include_bytes!("../../../assets/fonts/Tinos-Regular.ttf").as_slice()),
+        ("serif-bold", "Tinos-Bold", include_bytes!("../../../assets/fonts/Tinos-Bold.ttf").as_slice()),
+        ("serif-italic", "Tinos-Italic", include_bytes!("../../../assets/fonts/Tinos-Italic.ttf").as_slice()),
+        ("serif-bold-italic", "Tinos-BoldItalic", include_bytes!("../../../assets/fonts/Tinos-BoldItalic.ttf").as_slice()),
+    ] {
+        assert_eq!(defs.font_data[name].font, bytes, "{family}");
+        assert_eq!(defs.families[&FontFamily::Name(family.into())][0], name, "{family}");
+    }
+    let mut fonts = hinting_test_fonts(FontPolicyPlatform::Other);
+    for family in ["serif", "serif-bold", "serif-italic", "serif-bold-italic"] {
+        assert!(fonts.has_glyphs(&FontId::new(12.0, FontFamily::Name(family.into())), "Times"), "{family}");
+    }
+}
+
 #[test]
 fn windows_hinting_changes_only_the_jetbrains_symmetric_rendering_field() {
     let baseline = font_definitions_for_platform(false, FontPolicyPlatform::Other);
