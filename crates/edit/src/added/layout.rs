@@ -1,8 +1,9 @@
-use super::types::{AddedImage, AddedText};
+use super::types::{AddedImage, AddedText, Family};
 use super::{
-    Content, Document, EditError, GlyphError, Level, ObjRef, Object, ParagraphBidiInfo, ShapedCluster, ShapedScript, shape_arabic, shape_hebrew,
-    shape_thai,
+    Content, CraftFont, Document, EditError, GlyphError, Level, ObjRef, Object, ParagraphBidiInfo, ShapedCluster, ShapedScript, craft_advance,
+    craft_has, shape_arabic, shape_hebrew, shape_thai,
 };
+use crate::text::is_korean;
 
 pub(super) fn nums(doc: &Document, o: Option<&Object>) -> Vec<f64> {
     o.map(|o| doc.resolve(o)).and_then(|a| a.as_array().map(|a| a.iter().filter_map(Object::as_f64).collect())).unwrap_or_default()
@@ -40,6 +41,8 @@ pub(super) fn wrapped(t: &AddedText) -> Vec<(String, bool, usize)> {
         // Arabic or Hebrew: laid out with the bidirectional algorithm and shaped.
         let rtl_script = para.chars().any(|c| is_arabic(c) || is_hebrew(c));
         let thai = para.chars().any(is_thai);
+        // Korean is measured from its glyphs too (the standard-14 metrics say nothing about it).
+        let korean = para.chars().any(is_korean);
         if thai
             && !rtl_script
             && let Ok(lines) = thai_lines(t, para, width)
@@ -52,13 +55,13 @@ pub(super) fn wrapped(t: &AddedText) -> Vec<(String, bool, usize)> {
         // sum of its words' and shaping stays linear in the paragraph's length. The space is the
         // paragraph's; a space between Latin words is drawn in the item's font, a few hundredths
         // of an em apart.
-        let measure = |s: &str| if rtl_script || thai { shaped_width(t, s, rtl) } else { latin_width(t, s) };
+        let shaped = rtl_script || thai || korean;
+        let measure = |s: &str| if shaped { shaped_width(t, s, rtl) } else { latin_width(t, s) };
         let space = measure(" ");
         let (mut line, mut line_w) = (String::new(), 0.0);
         for word in para.split(' ') {
             let candidate = if line.is_empty() { word.to_string() } else { format!("{line} {word}") };
-            let candidate_w =
-                if rtl_script || thai { if line.is_empty() { measure(word) } else { line_w + space + measure(word) } } else { measure(&candidate) };
+            let candidate_w = if shaped { if line.is_empty() { measure(word) } else { line_w + space + measure(word) } } else { measure(&candidate) };
             if !line.is_empty() && candidate_w > width {
                 out.push((std::mem::take(&mut line), rtl, index));
                 line = word.to_string();
@@ -119,9 +122,9 @@ pub(super) fn is_hebrew(c: char) -> bool {
 }
 
 /// The first character of `t` that would be drawn as `?`: outside WinAnsiEncoding and not drawn
-/// with the craft-fonts Arabic (#125) or Hebrew (#128) face, or Arabic or Hebrew that the face can't
-/// draw (or that has no face to draw it). Page-content tools refuse such text; the Add-text editor
-/// keeps it open.
+/// with the craft-fonts Arabic (#125), Hebrew (#128) or Korean face, or one of those that the
+/// face can't draw (or that has no face to draw it). Page-content tools refuse such text; the
+/// Add-text editor keeps it open.
 pub fn first_undrawable(t: &AddedText) -> Option<char> {
     if t.text.chars().any(is_thai) {
         if let Some(c) = t.text.chars().find(|c| is_thai(*c) && !pdfcraft_fonts::thai_has(*c)) {
@@ -129,6 +132,14 @@ pub fn first_undrawable(t: &AddedText) -> Option<char> {
         }
         let rest = AddedText { text: t.text.chars().filter(|c| !is_thai(*c)).collect(), ..t.clone() };
         return first_undrawable(&rest);
+    }
+    // Korean that the Korean faces can't draw (there are none, or none of them has it): they are
+    // the only thing here that draws Hangul.
+    if t.text.chars().any(is_korean) {
+        let faces = korean_faces(t).unwrap_or_default();
+        if let Some(c) = t.text.chars().find(|c| is_korean(*c) && !faces.iter().any(|f| craft_has(f, *c))) {
+            return Some(c);
+        }
     }
     // Arabic or Hebrew that nothing can draw: there's no face, or the face lacks it.
     if let Some(c) =
@@ -151,11 +162,19 @@ pub fn first_undrawable(t: &AddedText) -> Option<char> {
     })
 }
 
-/// Whether `t` has Arabic or Hebrew that its craft-fonts face draws (so `draw` lays it out with
-/// [`draw_shaped`]).
+/// Whether `t` has Arabic, Hebrew or Korean that its craft-fonts face draws (so `draw` lays it
+/// out with [`draw_shaped`]).
 fn shaped_by_a_face(t: &AddedText) -> bool {
     (pdfcraft_fonts::document_arabic_font().is_some() && t.text.chars().any(is_arabic))
         || (pdfcraft_fonts::document_hebrew_font(false).is_some() && t.text.chars().any(is_hebrew))
+        || (korean_faces(t).is_ok() && t.text.chars().any(is_korean))
+}
+
+/// The faces that draw an item's Korean, best first: the replacement path's order (the style's
+/// own Kore faces, then the remaining Kore faces, then the Japanese and bundled Latin faces).
+/// Courier has no Korean craft mono face, so it draws the plain (sans) faces like Helvetica.
+pub(super) fn korean_faces(t: &AddedText) -> Result<Vec<&'static CraftFont>, EditError> {
+    crate::text::korean_face_list(t.family == Family::Times, t.bold)
 }
 
 /// An Arabic character the face shapes and draws (U+061C, a direction mark, is dropped).
@@ -214,6 +233,9 @@ pub(super) fn shaped_layout(t: &AddedText, line: &str, rtl: bool) -> Result<(Vec
             let after_hebrew = segments.last().is_some_and(|(kind, _)| *kind == Some(ShapedScript::Hebrew));
             let script = if is_thai(c) {
                 Some(ShapedScript::Thai)
+            } else if is_korean(c) {
+                // Hangul takes its own face; it needs no shaping (one glyph per character, LTR).
+                Some(ShapedScript::Korean)
             } else if is_hebrew(c) || (run_rtl && after_hebrew && !c.is_alphanumeric() && pdfcraft_fonts::hebrew_has(c)) {
                 Some(ShapedScript::Hebrew)
             } else if is_arabic(c) || (run_rtl && !c.is_alphanumeric() && pdfcraft_fonts::arabic_has(c)) {
@@ -235,6 +257,7 @@ pub(super) fn shaped_layout(t: &AddedText, line: &str, rtl: bool) -> Result<(Vec
                     ShapedScript::Arabic => shape_arabic(&s, run_rtl).map_err(|e| arabic_error(e, &s))?,
                     ShapedScript::Hebrew => shape_hebrew(&s, run_rtl).map_err(|e| hebrew_error(e, &s))?,
                     ShapedScript::Thai => shape_thai(&s).map_err(|e| thai_error(e, &s))?,
+                    ShapedScript::Korean => shape_korean(t, &s).map_err(|e| korean_error(e, &s))?,
                 };
                 Piece::Shaped(shaped)
             } else if run_rtl {
@@ -289,6 +312,30 @@ pub(super) fn thai_error(e: GlyphError, text: &str) -> EditError {
         GlyphError::Missing => format!("the Thai font can't show \"{text}\""),
         GlyphError::TooComplex => "the Thai glyphs are too complex; use a shorter text box".into(),
     })
+}
+
+pub(super) fn korean_error(e: GlyphError, text: &str) -> EditError {
+    match e {
+        // The same refusal the replacement path gives: the build has no Korean face.
+        GlyphError::NoFont => crate::text::no_korean_font(),
+        GlyphError::Missing => EditError::Invalid(format!("the Korean font can't show \"{text}\"")),
+        GlyphError::TooComplex => EditError::Invalid(format!("the Korean font's glyphs for \"{text}\" are too complex")),
+    }
+}
+
+/// Korean needs no shaping: syllables are precomposed and jamo stand alone, so each character is
+/// one glyph, drawn left to right. Each character takes the first face in the item's Korean face
+/// list that has it. A cluster's "glyph id" is the character itself, not a face glyph id: the
+/// outline lookup re-derives the face the same way, so glyphs from different fallback faces can
+/// never share an outline.
+fn shape_korean(t: &AddedText, text: &str) -> Result<Vec<ShapedCluster>, GlyphError> {
+    let faces = korean_faces(t).map_err(|_| GlyphError::NoFont)?;
+    let mut out = Vec::new();
+    for c in text.chars() {
+        let Some(advance) = faces.iter().find_map(|f| craft_advance(f, c)) else { return Err(GlyphError::Missing) };
+        out.push(ShapedCluster { script: ShapedScript::Korean, glyphs: vec![(u32::from(c), [0.0, 0.0])], advance, text: c.to_string() });
+    }
+    Ok(out)
 }
 
 /// The box a text item occupies (height from its lines).

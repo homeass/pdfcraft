@@ -46,7 +46,7 @@ impl Script {
 
 /// Hangul in any form: (old) jamo, compatibility jamo and the syllable blocks. Replacement text
 /// with any of it prefers the Korean craft face (Hakgyoansim Namu).
-fn is_korean(c: char) -> bool {
+pub(crate) fn is_korean(c: char) -> bool {
     matches!(u32::from(c), 0x1100..=0x11FF | 0x3131..=0x318F | 0xA960..=0xA97F | 0xAC00..=0xD7A3 | 0xD7B0..=0xD7FF)
 }
 
@@ -370,7 +370,7 @@ fn no_hebrew_font() -> EditError {
 }
 
 /// This build has no Korean face to draw replacement text with.
-fn no_korean_font() -> EditError {
+pub(crate) fn no_korean_font() -> EditError {
     EditError::Invalid(
         "this text needs PdfCraft's Korean fallback font (Hakgyoansim Namu), which this build doesn't include \
          (to build it in, set CRAFT_FONTS_DIR to a craft-fonts checkout that has it)"
@@ -385,35 +385,44 @@ fn no_korean_font() -> EditError {
 /// Namu) for plain text, the serif/sans and weight's own faces for a serif or bold request — then
 /// the Japanese faces, and the bundled Latin face behind them, which covers the Latin, Greek and
 /// Cyrillic letters they lack (#2593: the Japanese faces have no қ, ғ, ҳ, ә, ө, ү, ұ or һ).
+/// The faces Korean text draws with, best first: the style's own Kore faces — the script face
+/// (Hakgyoansim Namu) for plain text, the serif/sans and weight's own faces for a serif or bold
+/// request — then the remaining Kore faces, then the Japanese faces and the bundled Latin face
+/// behind them, which cover the Latin, Greek and Cyrillic letters the Kore faces lack (#2593:
+/// the Japanese faces have no қ, ғ, ҳ, ә, ө, ү, ұ or һ). Errors with [`no_korean_font`] when the
+/// build has no Korean face at all. Shared with the Add-text path, which draws Korean with the
+/// same order.
+pub(crate) fn korean_face_list(serif: bool, bold: bool) -> Result<Vec<&'static CraftFont>, EditError> {
+    let korean: Vec<&CraftFont> = if !serif && !bold {
+        // Plain Hangul keeps the script face (Hakgyoansim Namu) first (#3981), taking a
+        // character it lacks from the sans face, then the Japanese faces. A serif or bold
+        // request draws the style's own faces instead (명조 → Hakgyoansim Sangjang, 고딕 →
+        // Hakgyoansim Chulseokbu), with the remaining Kore faces behind them. Syllables are
+        // precomposed in Unicode, so one glyph per character draws them whole; a decomposed
+        // jamo sequence draws as its individual jamo.
+        let namu = pdfcraft_fonts::document_korean_font().ok_or_else(no_korean_font)?;
+        std::iter::once(namu)
+            .chain(pdfcraft_fonts::document_korean_fonts_for_style(false, false).into_iter().filter(|f| !std::ptr::eq(*f, namu)))
+            .collect()
+    } else {
+        let heads = pdfcraft_fonts::document_korean_fonts_for_style(serif, bold);
+        if heads.is_empty() {
+            return Err(no_korean_font());
+        }
+        heads.iter().copied().chain(pdfcraft_fonts::ui_korean_fonts().into_iter().filter(|f| !heads.iter().any(|h| std::ptr::eq(*h, *f)))).collect()
+    };
+    let japanese = pdfcraft_fonts::document_japanese_fonts_for_style(serif, bold);
+    let latin = pdfcraft_fonts::document_latin_fonts(bold);
+    Ok(korean.into_iter().chain(japanese).chain(latin).collect())
+}
+
 pub(crate) fn type3_faces(text: &str, family: crate::added::Family, bold: bool) -> Result<(Vec<&'static CraftFont>, Script), EditError> {
     let serif = family == crate::added::Family::Times;
     let japanese = pdfcraft_fonts::document_japanese_fonts_for_style(serif, bold);
     let latin = pdfcraft_fonts::document_latin_fonts(bold);
     if !text.chars().any(crate::bidi::is_hebrew) {
         if text.chars().any(is_korean) {
-            // Plain Hangul keeps the script face (Hakgyoansim Namu) first (#3981), taking a
-            // character it lacks from the sans face, then the Japanese faces. A serif or bold
-            // request draws the style's own faces instead (명조 → Hakgyoansim Sangjang, 고딕 →
-            // Hakgyoansim Chulseokbu), with the remaining Kore faces behind them. Syllables are
-            // precomposed in Unicode, so one glyph per character draws them whole; a decomposed
-            // jamo sequence draws as its individual jamo.
-            let korean: Vec<&CraftFont> = if !serif && !bold {
-                let namu = pdfcraft_fonts::document_korean_font().ok_or_else(no_korean_font)?;
-                std::iter::once(namu)
-                    .chain(pdfcraft_fonts::document_korean_fonts_for_style(false, false).into_iter().filter(|f| !std::ptr::eq(*f, namu)))
-                    .collect()
-            } else {
-                let heads = pdfcraft_fonts::document_korean_fonts_for_style(serif, bold);
-                if heads.is_empty() {
-                    return Err(no_korean_font());
-                }
-                heads
-                    .iter()
-                    .copied()
-                    .chain(pdfcraft_fonts::ui_korean_fonts().into_iter().filter(|f| !heads.iter().any(|h| std::ptr::eq(*h, *f))))
-                    .collect()
-            };
-            return Ok((korean.into_iter().chain(japanese).chain(latin).collect(), Script::Korean));
+            return Ok((korean_face_list(serif, bold)?, Script::Korean));
         }
         return Ok((japanese.into_iter().chain(latin).collect(), Script::Japanese));
     }
