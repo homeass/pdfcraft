@@ -1,6 +1,6 @@
 # Korean text support
 
-> **Last reviewed:** 2026-10-22 · **Last updated:** 2026-10-22 · **Change:** created · **Scope:** rendering, interface fallback and editing of Korean (Hangul) text
+> **Last reviewed:** 2026-10-22 · **Last updated:** 2026-10-22 · **Change:** minor (Add content ▸ text now draws Korean) · **Scope:** rendering, interface fallback and editing of Korean (Hangul) text
 
 What PdfCraft can and cannot do with Korean text today, which font carries it, and where each
 behaviour is pinned by a test. Korean interface *translation* (a `ko` catalog) is separate work:
@@ -32,6 +32,7 @@ degrades to a clear message, never to wrong glyphs.
 | Interface fallback | `ui_korean_fonts()` joins the egui family chain after CJK/Arabic/Telugu/Hebrew/Thai, so file names and titles in Hangul draw real glyphs | `crates/ui-egui/tests/fonts.rs::korean_ui_text_uses_craft_fonts` |
 | Viewing a PDF | a non-embedded CID font whose `/CIDSystemInfo /Ordering` is `Korea1`/`KR` substitutes the Korean face and says so (`Why::ScriptFace`); rasterization of such pages draws with it | `crates/fonts/src/fallback.rs::korean_depends_on_craft_fonts_and_says_which_it_got`, `crates/render/src/raster.rs::non_embedded_korean_cid_fonts_draw_with_a_craft_fonts_face` |
 | Editing existing text | Hangul replacement text keeps its own face on the line (Latin and digits too, one look per line), generated as one-glyph-per-character Type 3 fonts named `PCKo…` / `/Name PCKorean`; characters the face lacks are taken from the Japanese faces; longer runs split across fonts and still read as one line; the source font is reused whole when it already covers every character | `crates/edit/src/tests.rs::korean_replacement_text_uses_the_korean_face`, `crates/edit/src/tests.rs::korean_replacement_without_a_korean_face_says_so`, `crates/automation/tests/automation.rs::editing_existing_korean_text_through_tools` |
+| Add content ▸ text | a new Added-text item draws Hangul with the same Kore faces and one-glyph-per-character Type 3 mechanism, in the style's own face (plain → Namu, Times → Sangjang R, bold → Chulseokbu Bold; Courier has no Korean mono face and draws the plain faces), while Latin and digits in the same box keep the item's standard font; widths come from the drawn glyphs, so wrap/align/justify work, and a build without the faces refuses with the Korean-font message | `crates/edit/src/tests.rs::added_korean_text_is_written_and_read_back`, `crates/edit/src/tests.rs::added_korean_text_draws_the_style_the_request_asks_for`, `crates/edit/src/tests.rs::added_korean_text_without_a_korean_face_says_so`, `crates/automation/tests/automation.rs::adding_korean_text_through_tools` |
 | Embedding | any full Unicode face including Hangul round-trips through `pdfcraft_fonts::embedding::embed` (identity `PCFullFont` program, UCS-2 CIDs, ToUnicode) | `crates/fonts/src/embedding.rs::korean_text_round_trips_through_the_korean_craft_face` |
 | CLI demo | `cargo run -p pdfcraft-fonts --example korean -- out.pdf` writes a Hangul page with the embedded face | manual; covered programmatically by the embedding test above |
 
@@ -40,12 +41,11 @@ Parity entries updated: `view.render-cid-fonts` and `edit.text-reflow` in
 
 ## Limits and open ends
 
-- **Add content ▸ text**: a new Added-text item containing Hangul is still refused by
-  `first_undrawable` (Japanese text has the same limit; Arabic/Hebrew/Thai each have their own
-  shaped writer). Wiring Korean into Added-text is open work.
-- **Decomposed jamo**: replacement text draws one Type 3 glyph per character, so a decomposed
-  jamo sequence (e.g. U+110B U+110B) draws as individual jamo instead of composing; precomposed
-  syllables — every normal Korean input method's output — are exact.
+- **Decomposed jamo**: replacement and added text draw one Type 3 glyph per character, so a
+  decomposed jamo sequence (e.g. U+110B U+110B) draws as individual jamo instead of composing;
+  precomposed syllables — every normal Korean input method's output — are exact.
+- **Japanese Add Text** is still refused (Japanese has no shaped writer in the Added-text path
+  yet); Korean's wiring there does not cover it.
 - **One design**: Namu is a display-weight text face with only Regular and Light. Missing-bold
   requests resolve by NFSS to those faces; no synthetic bold is drawn. Korean releases get no
   serif Korean face (none is licensed in craft-fonts).
@@ -62,3 +62,4 @@ Parity entries updated: `view.render-cid-fonts` and `edit.text-reflow` in
 | Date | Change | Summary |
 |---|---|---|
 | 2026-10-22 | major | Created. Korean wired into the interface chain, CID substitution, renderer, editor Type 3 replacement and embedding; KERIS byte-match recorded |
+| 2026-10-22 | minor | Korean wired into Add content ▸ text (the Added-text path): the style's own Kore faces, one glyph per character, standard-font Latin in the same box |
