@@ -423,6 +423,31 @@ pub(crate) fn editor_font(look: &pdfcraft_engine::AddedText, size: f32) -> FontI
     FontId::new(size, family)
 }
 
+/// A standard family's name in a picker, with the Korean face that actually writes Hangul for
+/// it in brackets: whoever picks Helvetica must know the Hangul will come from the script face,
+/// not from a Helvetica-shaped one. Without Korean faces in the build nothing new can be drawn
+/// in Korean yet, so there is nothing to promise and no bracket is added.
+pub(crate) fn family_label(family: pdfcraft_engine::FontFamily, bold: bool) -> String {
+    match korean_face_note(family, bold) {
+        Some(note) => format!("{} ({note})", family.label()),
+        None => family.label().to_string(),
+    }
+}
+
+fn korean_face_note(family: pdfcraft_engine::FontFamily, bold: bool) -> Option<String> {
+    let serif = family == pdfcraft_engine::FontFamily::Times;
+    // The head face the writer picks: plain text keeps the script face, a serif or bold
+    // request draws the style's own face (Courier included has no Korean craft mono face).
+    let head =
+        if serif || bold { *pdfcraft_fonts::document_korean_fonts_for_style(serif, bold).first()? } else { pdfcraft_fonts::document_korean_font()? };
+    Some(match head.family {
+        "Hakgyoansim Namu" => tl!("Hakgyoansim Namu").to_string(),
+        "Hakgyoansim Sangjang R" => tl!("Hakgyoansim Sangjang").to_string(),
+        "Hakgyoansim Chulseokbu TTF" => tl!("Hakgyoansim Chulseokbu").to_string(),
+        other => other.to_string(),
+    })
+}
+
 fn color32(color: [f64; 3]) -> Color32 {
     Color32::from_rgb(
         (color[0].clamp(0.0, 1.0) * 255.0).round() as u8,
@@ -1782,6 +1807,39 @@ pub(crate) fn caret_color_on(fill: Color32) -> Color32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_korean_face_labels_in_the_font_pickers_follow_the_writer() {
+        use pdfcraft_engine::FontFamily as F;
+        let note_of = |serif: bool, bold: bool| {
+            let head = if serif || bold {
+                pdfcraft_fonts::document_korean_fonts_for_style(serif, bold).into_iter().next()
+            } else {
+                pdfcraft_fonts::document_korean_font()
+            };
+            head.map(|f| match f.family {
+                "Hakgyoansim Namu" => "Hakgyoansim Namu",
+                "Hakgyoansim Sangjang R" => "Hakgyoansim Sangjang",
+                "Hakgyoansim Chulseokbu TTF" => "Hakgyoansim Chulseokbu",
+                other => other,
+            })
+        };
+        for family in [F::Helvetica, F::Times, F::Courier] {
+            for bold in [false, true] {
+                let want = note_of(family == F::Times, bold);
+                let label = family_label(family, bold);
+                let expected = match &want {
+                    Some(note) => format!("{} ({note})", family.label()),
+                    None => family.label().to_string(),
+                };
+                assert_eq!(label, expected, "{} bold={bold}", family.label());
+            }
+        }
+        // The whole point of the note: a Korean user can see which face writes the Hangul.
+        if let (Some(plain), Some(serif)) = (note_of(false, false), note_of(true, false)) {
+            assert_ne!(plain, serif, "the script and serif faces must read differently");
+        }
+    }
 
     #[test]
     fn the_rotate_knob_moves_below_when_there_is_no_room_above() {
