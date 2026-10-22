@@ -142,7 +142,7 @@ pub(crate) fn panel(
                 ui.separator();
             }
             for f in [FontFamily::Helvetica, FontFamily::Times, FontFamily::Courier] {
-                if ui.selectable_label(fonts.sources.is_none() && look.family == f, f.label()).clicked() {
+                if ui.selectable_label(fonts.sources.is_none() && look.family == f, crate::edit_text_ui::family_label(f, look.bold)).clicked() {
                     out.font = Some(FontChoice::Family(f));
                 }
             }
