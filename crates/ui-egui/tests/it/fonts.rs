@@ -450,13 +450,24 @@ fn primary_ui_fonts_cover_latin_and_cyrillic_catalogs() {
         let mut text = String::from(
             "áčďéěíňóřšťúůýžÁČĎÉĚÍŇÓŘŠŤÚŮÝŽãõçâêôàÃÕÇÂÊÔÀñÑüÜäÄöÖőűßæøåÆØÅ„“¿¡«»…ґҐєЄіІїЇәғқңөұүһӘҒҚҢӨҰҮҺđĐạảấầẩẫậắằẳẵặếềểễệọỏốồổỗộớờởỡợụủứừửữựỳỵỷỹ",
         );
+        // The Korean face-label entries are bracketed Hangul (`Hakgyoansim Namu (학교안심 나무)`):
+        // the picker shows them only in builds that ship a Kore face, which draws them through the
+        // UI Korean fallback chain, so they are not Inter's to cover — but they must not be boxes.
+        let is_hangul = |c: char| matches!(u32::from(c), 0x1100..=0x11ff | 0x3130..=0x318f | 0xac00..=0xd7a3);
+        let mut hangul: Vec<char> = Vec::new();
         for line in catalog.lines().filter(|l| !l.starts_with('#')) {
             let mut columns = line.split('\t').skip(1);
             if let (Some(source), Some(translation)) = (columns.next(), columns.next()) {
                 // Every letter is checked. A symbol the row's English text has too (the menu path
                 // arrow `▸`, say) is drawn however English draws it, so it is not this catalog's
                 // to cover.
-                text.extend(translation.chars().filter(|c| !c.is_whitespace() && (c.is_alphanumeric() || !source.contains(*c))));
+                for c in translation.chars().filter(|c| !c.is_whitespace() && (c.is_alphanumeric() || !source.contains(*c))) {
+                    if is_hangul(c) {
+                        hangul.push(c);
+                    } else {
+                        text.push(c);
+                    }
+                }
             }
         }
         for name in ["Inter", "Inter-Medium", "Inter-SemiBold", "JetBrainsMono"] {
@@ -468,6 +479,13 @@ fn primary_ui_fonts_cover_latin_and_cyrillic_catalogs() {
             missing.sort_unstable();
             missing.dedup();
             assert!(missing.is_empty(), "{code}: {name} lacks {missing:?}");
+        }
+        let kore = pdfcraft_fonts::ui_korean_fonts();
+        if !hangul.is_empty() && !kore.is_empty() {
+            let covered = hangul
+                .iter()
+                .all(|c| kore.iter().any(|f| skrifa::FontRef::from_index(f.bytes, 0).is_ok_and(|font| font.charmap().map(*c).is_some())));
+            assert!(covered, "{code}: the bracketed Hangul {hangul:?} has no glyph in the UI Korean fallback chain");
         }
     }
 }
