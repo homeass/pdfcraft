@@ -386,18 +386,21 @@ pub(crate) fn no_korean_font() -> EditError {
 /// the Japanese faces, and the bundled Latin face behind them, which covers the Latin, Greek and
 /// Cyrillic letters they lack (#2593: the Japanese faces have no қ, ғ, ҳ, ә, ө, ү, ұ or һ).
 /// The faces Korean text draws with, best first: the style's own Kore faces — the script face
-/// (Hakgyoansim Namu) for plain text, the serif/sans and weight's own faces for a serif or bold
-/// request — then the remaining Kore faces, then the Japanese faces and the bundled Latin face
+/// (Hakgyoansim Namu) for plain Helvetica, the serif/sans and weight's own faces for a serif,
+/// bold or Courier request (Courier has no Korean mono face and draws the sans face) — then the
+/// remaining Kore faces, then the Japanese faces and the bundled Latin face
 /// behind them, which cover the Latin, Greek and Cyrillic letters the Kore faces lack (#2593:
 /// the Japanese faces have no қ, ғ, ҳ, ә, ө, ү, ұ or һ). Errors with [`no_korean_font`] when the
 /// build has no Korean face at all. Shared with the Add-text path, which draws Korean with the
 /// same order.
-pub(crate) fn korean_face_list(serif: bool, bold: bool) -> Result<Vec<&'static CraftFont>, EditError> {
-    let korean: Vec<&CraftFont> = if !serif && !bold {
-        // Plain Hangul keeps the script face (Hakgyoansim Namu) first (#3981), taking a
-        // character it lacks from the sans face, then the Japanese faces. A serif or bold
-        // request draws the style's own faces instead (명조 → Hakgyoansim Sangjang, 고딕 →
-        // Hakgyoansim Chulseokbu), with the remaining Kore faces behind them. Syllables are
+pub(crate) fn korean_face_list(family: crate::added::Family, bold: bool) -> Result<Vec<&'static CraftFont>, EditError> {
+    let serif = family == crate::added::Family::Times;
+    let korean: Vec<&CraftFont> = if family == crate::added::Family::Helvetica && !bold {
+        // Plain Helvetica keeps the script face (Hakgyoansim Namu) first (#3981), taking a
+        // character it lacks from the sans face, then the Japanese faces. Times, bold text and
+        // Courier draw the style's own faces instead (명조 → Hakgyoansim Sangjang, 고딕 →
+        // Hakgyoansim Chulseokbu; Courier has no Korean mono face, so it draws the sans face:
+        // Light plain, Bold bold), with the remaining Kore faces behind them. Syllables are
         // precomposed in Unicode, so one glyph per character draws them whole; a decomposed
         // jamo sequence draws as its individual jamo.
         let namu = pdfcraft_fonts::document_korean_font().ok_or_else(no_korean_font)?;
@@ -422,7 +425,7 @@ pub(crate) fn type3_faces(text: &str, family: crate::added::Family, bold: bool) 
     let latin = pdfcraft_fonts::document_latin_fonts(bold);
     if !text.chars().any(crate::bidi::is_hebrew) {
         if text.chars().any(is_korean) {
-            return Ok((korean_face_list(serif, bold)?, Script::Korean));
+            return Ok((korean_face_list(family, bold)?, Script::Korean));
         }
         return Ok((japanese.into_iter().chain(latin).collect(), Script::Japanese));
     }

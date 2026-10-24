@@ -140,7 +140,7 @@ fn validate(c: &Content) -> Result<(), EditError> {
             }
             // Korean is drawn with the craft-fonts Korean faces, never by the standard fonts:
             // without them the refusal is the replacement path's Korean-font message, not the
-            // generic one. (Courier has no Korean mono face; it draws the plain faces.)
+            // generic one. (Courier has no Korean mono face; it draws the sans faces.)
             if t.text.chars().any(is_korean) {
                 korean_faces(t)?;
             }

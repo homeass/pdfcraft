@@ -1243,8 +1243,8 @@ fn added_korean_text_is_written_and_read_back() {
     assert!(item.contains("/PCFHelvetica"), "{item}");
 }
 
-/// The style's own Korean face: plain → Namu, Times → Sangjang, bold → Chulseokbu Bold (never a
-/// synthesized weight; Courier has no Korean mono face and draws the plain faces).
+/// The style's own Korean face: plain Helvetica → Namu, Times → Sangjang, Courier → Chulseokbu
+/// Light (no Korean mono face exists), bold → Chulseokbu Bold (never a synthesized weight).
 #[test]
 fn added_korean_text_draws_the_style_the_request_asks_for() {
     if pdfcraft_fonts::document_korean_font().is_none() {
@@ -1256,6 +1256,7 @@ fn added_korean_text_draws_the_style_the_request_asks_for() {
     for (family, bold, expected) in [
         (Family::Helvetica, false, "HakgyoansimNamu"),
         (Family::Times, false, "HakgyoansimSangjangR"),
+        (Family::Courier, false, "HakgyoansimChulseokbuTTF"),
         (Family::Helvetica, true, "HakgyoansimChulseokbuTTF"),
     ] {
         let mut doc = fixture();
@@ -1770,7 +1771,7 @@ fn korean_replacement_text_uses_the_korean_face() {
 }
 
 /// Korean replacement in a serif (Times-family) line draws the 명조 craft face (Hakgyoansim
-/// Sangjang), not the script face plain text keeps.
+/// Sangjang), not the script face plain Helvetica keeps.
 #[test]
 fn korean_serif_replacement_uses_the_sangjang_face() {
     if pdfcraft_fonts::document_korean_fonts_for_style(true, false).is_empty() {
@@ -1786,6 +1787,26 @@ fn korean_serif_replacement_uses_the_sangjang_face() {
     let lines = text::text_lines(&reopen(&doc), 0).unwrap();
     assert_eq!(lines[0].text, replacement);
     assert!(lines[0].base_font.contains("HakgyoansimSangjang"), "{} should report the serif Korean face", lines[0].base_font);
+}
+
+/// Korean replacement in a Courier line draws the 고딕 craft face in Light (Hakgyoansim
+/// Chulseokbu), not the script face plain Helvetica keeps: there is no Korean mono face, and a
+/// typewriter line should read like a document, not like handwriting.
+#[test]
+fn korean_courier_replacement_uses_the_chulseokbu_light_face() {
+    if pdfcraft_fonts::document_korean_fonts_for_style(false, false).is_empty() {
+        eprintln!(
+            "skipping korean_courier_replacement_uses_the_chulseokbu_light_face: no Kore face in this build (set CRAFT_FONTS_DIR to a checkout with one)"
+        );
+        return;
+    }
+    let replacement = "한국어 타자기";
+    let mut doc = styled_text_page("Courier");
+    let r = text::replace_line(&mut doc, 0, 0, replacement).unwrap();
+    assert_eq!(r.substituted.as_deref(), Some("Hakgyoansim Chulseokbu TTF Type3"), "{r:?}");
+    let lines = text::text_lines(&reopen(&doc), 0).unwrap();
+    assert_eq!(lines[0].text, replacement);
+    assert!(lines[0].base_font.contains("HakgyoansimChulseokbuTTF-Light"), "{} should report the sans Korean face in Light", lines[0].base_font);
 }
 
 /// A bold Korean replacement draws the 고딕 craft face's Bold (Hakgyoansim Chulseokbu), never a
