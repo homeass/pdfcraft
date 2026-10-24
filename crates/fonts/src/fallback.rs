@@ -183,7 +183,10 @@ pub fn substitute(req: &Request<'_>) -> Substitution {
     }
     if let Some(script) = req.ordering.and_then(script_for) {
         // A script we hold a face for; otherwise there is no honest substitute to offer.
-        return match crate::CRAFT_FONTS.iter().find(|f| f.covers(script)) {
+        // Korean delegates to the document selector — the same face the renderer draws the page
+        // with — instead of restating its order; other scripts keep the first covering face.
+        let face = if script == "Kore" { crate::document_korean_font() } else { crate::CRAFT_FONTS.iter().find(|f| f.covers(script)) };
+        return match face {
             Some(f) => at(Face::Craft(f), Why::ScriptFace),
             None => at(Face::None, Why::NoFaceForScript),
         };
@@ -337,10 +340,11 @@ mod tests {
         // Same contract as Japanese, for both spellings of the Korean CID ordering.
         for ordering in ["Korea1", "KR"] {
             let s = substitute(&req("SomeKoreanFont", false, 0, Some(ordering)));
-            if crate::CRAFT_FONTS.iter().any(|f| f.covers("Kore")) {
+            if let Some(kore) = crate::document_korean_font() {
                 assert_eq!(s.why, Why::ScriptFace, "{ordering}");
                 assert!(matches!(s.face, Face::Craft(_)), "{ordering}");
-                assert!(s.face_name().is_some_and(|n| !n.is_empty()), "{ordering}");
+                // The report names the very face the renderer draws the page with.
+                assert_eq!(s.face_name().as_deref(), Some(kore.name().as_str()), "{ordering}");
             } else {
                 assert_eq!(s.why, Why::NoFaceForScript, "{ordering}");
                 assert_eq!(s.face, Face::None, "{ordering}");
