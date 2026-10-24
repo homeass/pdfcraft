@@ -47,10 +47,15 @@ pub(crate) fn family_label(family: pdfcraft_engine::FontFamily, bold: bool) -> S
 
 fn korean_face_note(family: pdfcraft_engine::FontFamily, bold: bool) -> Option<String> {
     let serif = family == pdfcraft_engine::FontFamily::Times;
-    // The head face the writer picks: plain text keeps the script face, a serif or bold
-    // request draws the style's own face (Courier included has no Korean craft mono face).
-    let head =
-        if serif || bold { *pdfcraft_fonts::document_korean_fonts_for_style(serif, bold).first()? } else { pdfcraft_fonts::document_korean_font()? };
+    let mono = family == pdfcraft_engine::FontFamily::Courier;
+    // The head face the writer picks: plain Helvetica keeps the script face; a serif, bold or
+    // Courier request draws the style's own face (no Korean craft mono face exists, so Courier
+    // takes the sans stand-in — Light plain, Bold bold).
+    let head = if serif || bold || mono {
+        *pdfcraft_fonts::document_korean_fonts_for_style(serif, bold).first()?
+    } else {
+        pdfcraft_fonts::document_korean_font()?
+    };
     Some(match head.family {
         "Hakgyoansim Namu" => tl!("Hakgyoansim Namu").to_string(),
         "Hakgyoansim Sangjang R" => tl!("Hakgyoansim Sangjang").to_string(),
