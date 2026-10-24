@@ -423,18 +423,24 @@ pub(crate) fn editor_font(look: &pdfcraft_engine::AddedText, size: f32) -> FontI
     FontId::new(size, family)
 }
 
-/// A standard family's name in a picker, with the Korean face that actually writes Hangul for
-/// it in brackets: whoever picks Helvetica must know the Hangul will come from the script face,
-/// not from a Helvetica-shaped one. Without Korean faces in the build nothing new can be drawn
-/// in Korean yet, so there is nothing to promise and no bracket is added.
-pub(crate) fn family_label(family: pdfcraft_engine::FontFamily, bold: bool) -> String {
-    match korean_face_note(family, bold) {
-        Some(note) => format!("{} ({note})", family.label()),
-        None => family.label().to_string(),
+/// A picker row's text as a job: the Latin name in the row's own preview font (the caller's
+/// `latin`), the bracketed Hangul note in the very face it names — the generic script fallback
+/// would draw every note alike, and a row promising Chulseokbu would show its own name in Namu.
+/// Without Korean faces in the build nothing new can be drawn in Korean yet, so there is nothing
+/// to promise and no bracket is added.
+/// `theme::font_definitions` registers each face the Korean writer selects as a named family,
+/// resolved by the head face's data name here.
+pub(crate) fn family_label_job(family: pdfcraft_engine::FontFamily, bold: bool, latin: egui::FontId) -> egui::text::LayoutJob {
+    let mut job = egui::text::LayoutJob::single_section(family.label().to_owned(), egui::TextFormat { font_id: latin.clone(), ..Default::default() });
+    if let Some((note, head)) = korean_face_note(family, bold) {
+        let ko = egui::FontId::new(latin.size, egui::FontFamily::Name(head.into()));
+        job.append(&format!(" ({note})"), 0.0, egui::TextFormat { font_id: ko, ..Default::default() });
     }
+    job
 }
 
-fn korean_face_note(family: pdfcraft_engine::FontFamily, bold: bool) -> Option<String> {
+/// The bracketed note's display string and the head face's registered font-data name.
+fn korean_face_note(family: pdfcraft_engine::FontFamily, bold: bool) -> Option<(String, String)> {
     let serif = family == pdfcraft_engine::FontFamily::Times;
     let mono = family == pdfcraft_engine::FontFamily::Courier;
     // The head face the writer picks: plain Helvetica keeps the script face; a serif, bold or
@@ -445,12 +451,13 @@ fn korean_face_note(family: pdfcraft_engine::FontFamily, bold: bool) -> Option<S
     } else {
         pdfcraft_fonts::document_korean_font()?
     };
-    Some(match head.family {
+    let label = match head.family {
         "Hakgyoansim Namu" => tl!("Hakgyoansim Namu").to_string(),
         "Hakgyoansim Sangjang R" => tl!("Hakgyoansim Sangjang").to_string(),
         "Hakgyoansim Chulseokbu TTF" => tl!("Hakgyoansim Chulseokbu").to_string(),
         other => other.to_string(),
-    })
+    };
+    Some((label, head.name()))
 }
 
 fn color32(color: [f64; 3]) -> Color32 {
@@ -1833,7 +1840,7 @@ mod tests {
         for family in [F::Helvetica, F::Times, F::Courier] {
             for bold in [false, true] {
                 let want = note_of(family, bold);
-                let label = family_label(family, bold);
+                let label = family_label_job(family, bold, egui::FontId::proportional(13.0)).text;
                 let expected = match &want {
                     Some(note) => format!("{} ({note})", family.label()),
                     None => family.label().to_string(),
@@ -1847,6 +1854,38 @@ mod tests {
             assert_ne!(plain, serif, "the script and serif faces must read differently");
             assert_ne!(plain, mono, "Courier must not draw the script face too");
             assert_ne!(serif, mono, "the serif and sans faces must read differently");
+        }
+    }
+
+    /// The job's Hangul run must name the very face the writer picks for the row, so
+    /// `theme::font_definitions` resolves it to that face's own data; without the faces there
+    /// is one run and no promise.
+    #[test]
+    fn the_picker_note_is_drawn_in_the_face_it_names() {
+        use pdfcraft_engine::FontFamily as F;
+        let body = egui::FontId::proportional(13.0);
+        for family in [F::Helvetica, F::Times, F::Courier] {
+            for bold in [false, true] {
+                let serif = family == F::Times;
+                let head = if serif || bold || family == F::Courier {
+                    pdfcraft_fonts::document_korean_fonts_for_style(serif, bold).into_iter().next()
+                } else {
+                    pdfcraft_fonts::document_korean_font()
+                };
+                let job = family_label_job(family, bold, body.clone());
+                match head {
+                    Some(head) => {
+                        assert_eq!(job.sections.len(), 2, "{} bold={bold}: Latin run plus note", family.label());
+                        let want = egui::FontFamily::Name(head.name().into());
+                        assert_eq!(job.sections[1].format.font_id.family, want, "{} bold={bold}", family.label());
+                        assert_eq!(job.sections[0].format.font_id, body);
+                        // The named family must exist, or egui would silently draw the note in the
+                        // fallback it was meant to avoid.
+                        assert!(crate::theme::font_definitions().families.contains_key(&want), "{} bold={bold}: not registered", family.label());
+                    }
+                    None => assert_eq!(job.sections.len(), 1, "{} bold={bold}: no face to promise", family.label()),
+                }
+            }
         }
     }
 

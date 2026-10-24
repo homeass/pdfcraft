@@ -227,14 +227,18 @@ pub(crate) fn body(ui: &mut egui::Ui, app: &mut PdfCraftApp, t: &Tokens, kind: M
             ui.horizontal(|ui| {
                 // The standard faces a header can be drawn in (#3754).
                 ui.label(tl!("Font:"));
-                egui::ComboBox::from_id_salt("hf-font").selected_text(crate::edit_text_ui::family_label(d.hf.font, false)).width(100.0).show_ui(
-                    ui,
-                    |ui| {
+                egui::ComboBox::from_id_salt("hf-font")
+                    .selected_text(crate::edit_text_ui::family_label_job(d.hf.font, false, egui::TextStyle::Body.resolve(ui.style())))
+                    .width(100.0)
+                    .show_ui(ui, |ui| {
                         for f in [FontFamily::Helvetica, FontFamily::Times, FontFamily::Courier] {
-                            ui.selectable_value(&mut d.hf.font, f, crate::edit_text_ui::family_label(f, false));
+                            ui.selectable_value(
+                                &mut d.hf.font,
+                                f,
+                                crate::edit_text_ui::family_label_job(f, false, egui::TextStyle::Body.resolve(ui.style())),
+                            );
                         }
-                    },
-                );
+                    });
                 ui.label(tl!("Size"));
                 ui.add(egui::DragValue::new(&mut d.hf.font_size).range(4.0..=72.0).speed(0.5));
                 ui.add(widgets::checkbox(&mut d.hf.underline, tl!("Underline")));

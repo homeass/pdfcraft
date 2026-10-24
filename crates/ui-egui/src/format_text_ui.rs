@@ -94,7 +94,11 @@ pub(crate) fn panel(ui: &mut egui::Ui, t: &Tokens, look: &mut AddedText, extras:
                 ui.separator();
             }
             for f in [FontFamily::Helvetica, FontFamily::Times, FontFamily::Courier] {
-                if ui.selectable_label(fonts.sources.is_none() && look.family == f, crate::edit_text_ui::family_label(f, look.bold)).clicked() {
+                let body = egui::TextStyle::Body.resolve(ui.style());
+                if ui
+                    .selectable_label(fonts.sources.is_none() && look.family == f, crate::edit_text_ui::family_label_job(f, look.bold, body))
+                    .clicked()
+                {
                     out.font = Some(FontChoice::Family(f));
                 }
             }
