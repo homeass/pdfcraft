@@ -71,9 +71,12 @@ fn header_and_footer_dialog_draws_in_the_chosen_face() {
     assert!(h.state_mut().execute("edit.header_footer"));
     h.run_steps(3);
     h.get_by_label("Font:");
-    h.get_by_value("Helvetica").click();
+    // The picker names the Korean face each family writes Hangul in, so a build that ships the
+    // Kore faces reads "Helvetica (Hakgyoansim Namu)" — match the family word so the test holds
+    // with and without the faces.
+    h.get_by(|n| n.role() == egui::accesskit::Role::ComboBox && n.value().is_some_and(|v| v.starts_with("Helvetica"))).click();
     h.run_steps(2);
-    h.get_by_label("Times").click();
+    h.get_by(|n| n.label().is_some_and(|l| l.starts_with("Times"))).click();
     h.run_steps(2);
     assert_eq!(h.state().marks_draft.hf.font, pdfcraft_engine::FontFamily::Times);
     h.state_mut().marks_draft.hf.text[0] = "Serif".into();
