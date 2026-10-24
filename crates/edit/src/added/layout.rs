@@ -174,7 +174,7 @@ fn shaped_by_a_face(t: &AddedText) -> bool {
 /// own Kore faces, then the remaining Kore faces, then the Japanese and bundled Latin faces).
 /// Courier has no Korean craft mono face, so it draws the plain (sans) faces like Helvetica.
 pub(super) fn korean_faces(t: &AddedText) -> Result<Vec<&'static CraftFont>, EditError> {
-    crate::text::korean_face_list(t.family == Family::Times, t.bold)
+    crate::text::korean_face_list(t.family, t.bold)
 }
 
 /// An Arabic character the face shapes and draws (U+061C, a direction mark, is dropped).
