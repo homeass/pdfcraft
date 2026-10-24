@@ -436,10 +436,15 @@ pub(crate) fn family_label(family: pdfcraft_engine::FontFamily, bold: bool) -> S
 
 fn korean_face_note(family: pdfcraft_engine::FontFamily, bold: bool) -> Option<String> {
     let serif = family == pdfcraft_engine::FontFamily::Times;
-    // The head face the writer picks: plain text keeps the script face, a serif or bold
-    // request draws the style's own face (Courier included has no Korean craft mono face).
-    let head =
-        if serif || bold { *pdfcraft_fonts::document_korean_fonts_for_style(serif, bold).first()? } else { pdfcraft_fonts::document_korean_font()? };
+    let mono = family == pdfcraft_engine::FontFamily::Courier;
+    // The head face the writer picks: plain Helvetica keeps the script face; a serif, bold or
+    // Courier request draws the style's own face (no Korean craft mono face exists, so Courier
+    // takes the sans stand-in — Light plain, Bold bold).
+    let head = if serif || bold || mono {
+        *pdfcraft_fonts::document_korean_fonts_for_style(serif, bold).first()?
+    } else {
+        pdfcraft_fonts::document_korean_font()?
+    };
     Some(match head.family {
         "Hakgyoansim Namu" => tl!("Hakgyoansim Namu").to_string(),
         "Hakgyoansim Sangjang R" => tl!("Hakgyoansim Sangjang").to_string(),
@@ -1811,8 +1816,9 @@ mod tests {
     #[test]
     fn the_korean_face_labels_in_the_font_pickers_follow_the_writer() {
         use pdfcraft_engine::FontFamily as F;
-        let note_of = |serif: bool, bold: bool| {
-            let head = if serif || bold {
+        let note_of = |family: F, bold: bool| {
+            let serif = family == F::Times;
+            let head = if serif || bold || family == F::Courier {
                 pdfcraft_fonts::document_korean_fonts_for_style(serif, bold).into_iter().next()
             } else {
                 pdfcraft_fonts::document_korean_font()
@@ -1826,7 +1832,7 @@ mod tests {
         };
         for family in [F::Helvetica, F::Times, F::Courier] {
             for bold in [false, true] {
-                let want = note_of(family == F::Times, bold);
+                let want = note_of(family, bold);
                 let label = family_label(family, bold);
                 let expected = match &want {
                     Some(note) => format!("{} ({note})", family.label()),
@@ -1835,9 +1841,12 @@ mod tests {
                 assert_eq!(label, expected, "{} bold={bold}", family.label());
             }
         }
-        // The whole point of the note: a Korean user can see which face writes the Hangul.
-        if let (Some(plain), Some(serif)) = (note_of(false, false), note_of(true, false)) {
+        // The whole point of the note: a Korean user can see which face writes the Hangul, and
+        // the three plain rows must read differently — no family shares its face with another.
+        if let (Some(plain), Some(serif), Some(mono)) = (note_of(F::Helvetica, false), note_of(F::Times, false), note_of(F::Courier, false)) {
             assert_ne!(plain, serif, "the script and serif faces must read differently");
+            assert_ne!(plain, mono, "Courier must not draw the script face too");
+            assert_ne!(serif, mono, "the serif and sans faces must read differently");
         }
     }
 
