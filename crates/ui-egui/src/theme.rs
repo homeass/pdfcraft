@@ -406,6 +406,32 @@ fn font_definitions_for_platform(prefer_hans: bool, platform: FontPolicyPlatform
         }
     }
     let fallback: Vec<String> = fonts.families[&FontFamily::Proportional].clone();
+    // The faces the Korean writer itself selects (pdfcraft-fonts' head picks) become named
+    // families keyed by their font-data name, so a picker's bracketed Hangul note can be drawn
+    // in the very face it names instead of the generic script fallback (edit_text_ui::family_label_job).
+    {
+        let mut heads: Vec<&pdfcraft_fonts::CraftFont> = Vec::new();
+        if let Some(f) = pdfcraft_fonts::document_korean_font() {
+            heads.push(f);
+        }
+        for serif in [false, true] {
+            for bold in [false, true] {
+                if let Some(f) = pdfcraft_fonts::document_korean_fonts_for_style(serif, bold).into_iter().next() {
+                    heads.push(f);
+                }
+            }
+        }
+        for face in heads {
+            let name = face.name();
+            let fam = FontFamily::Name(name.clone().into());
+            if fonts.families.contains_key(&fam) {
+                continue;
+            }
+            let mut stack = vec![name];
+            stack.extend(fallback.iter().cloned());
+            fonts.families.insert(fam, stack);
+        }
+    }
     for (fam, primary) in [("medium", "Inter-Medium"), ("semibold", "Inter-SemiBold")] {
         let mut stack = vec![primary.to_owned()];
         stack.extend(fallback.iter().cloned());
