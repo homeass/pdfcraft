@@ -452,6 +452,7 @@ fn korean_face_note(family: pdfcraft_engine::FontFamily, bold: bool) -> Option<(
         pdfcraft_fonts::document_korean_font()?
     };
     let label = match head.family {
+        "NanumGothic" => tl!("NanumGothic").to_string(),
         "Hakgyoansim Namu" => tl!("Hakgyoansim Namu").to_string(),
         "Hakgyoansim Sangjang R" => tl!("Hakgyoansim Sangjang").to_string(),
         "Hakgyoansim Chulseokbu TTF" => tl!("Hakgyoansim Chulseokbu").to_string(),
@@ -1831,6 +1832,7 @@ mod tests {
                 pdfcraft_fonts::document_korean_font()
             };
             head.map(|f| match f.family {
+                "NanumGothic" => "NanumGothic",
                 "Hakgyoansim Namu" => "Hakgyoansim Namu",
                 "Hakgyoansim Sangjang R" => "Hakgyoansim Sangjang",
                 "Hakgyoansim Chulseokbu TTF" => "Hakgyoansim Chulseokbu",

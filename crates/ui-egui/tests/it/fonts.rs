@@ -435,9 +435,10 @@ fn primary_ui_fonts_cover_latin_and_cyrillic_catalogs() {
         let mut text = String::from(
             "áčďéěíňóřšťúůýžÁČĎÉĚÍŇÓŘŠŤÚŮÝŽãõçâêôàÃÕÇÂÊÔÀñÑüÜäÄöÖőűßæøåÆØÅ„“¿¡«»…ґҐєЄіІїЇәғқңөұүһӘҒҚҢӨҰҮҺđĐạảấầẩẫậắằẳẵặếềểễệọỏốồổỗộớờởỡợụủứừửữựỳỵỷỹ",
         );
-        // The Korean face-label entries are bracketed Hangul (`Hakgyoansim Namu (학교안심 나무)`):
-        // the picker shows them only in builds that ship a Kore face, which draws them through the
-        // UI Korean fallback chain, so they are not Inter's to cover — but they must not be boxes.
+        // The Korean face-label entries are bracketed Hangul (`Hakgyoansim Namu (학교안심 나무)`,
+        // `NanumGothic (나눔고딕)`): the picker shows them only in builds that ship a Kore face,
+        // which draws them through the UI Korean fallback chain, so they are not Inter's to
+        // cover — but they must not be boxes.
         let is_hangul = |c: char| matches!(u32::from(c), 0x1100..=0x11ff | 0x3130..=0x318f | 0xac00..=0xd7a3);
         let mut hangul: Vec<char> = Vec::new();
         for line in catalog.lines().filter(|l| !l.starts_with('#')) {

@@ -1900,7 +1900,7 @@ impl Script {
 }
 
 /// Hangul in any form: (old) jamo, compatibility jamo and the syllable blocks. Replacement text
-/// with any of it prefers the Korean craft face (Hakgyoansim Namu).
+/// with any of it prefers the Korean craft face (NanumGothic, the default Korean face).
 pub(crate) fn is_korean(c: char) -> bool {
     matches!(u32::from(c), 0x1100..=0x11FF | 0x3131..=0x318F | 0xA960..=0xA97F | 0xAC00..=0xD7A3 | 0xD7B0..=0xD7FF)
 }
@@ -2224,7 +2224,7 @@ fn no_hebrew_font() -> EditError {
 /// This build has no Korean face to draw replacement text with.
 pub(crate) fn no_korean_font() -> EditError {
     EditError::Invalid(
-        "this text needs PdfCraft's Korean fallback font (Hakgyoansim Namu), which this build doesn't include \
+        "this text needs PdfCraft's Korean fallback font (NanumGothic, the default Korean face), which this build doesn't include \
          (to build it in, set CRAFT_FONTS_DIR to a craft-fonts checkout that has it)"
             .into(),
     )
@@ -2233,13 +2233,13 @@ pub(crate) fn no_korean_font() -> EditError {
 /// The faces a Type 3 replacement may draw `text` with, best first. Text with Hebrew takes the
 /// Hebrew face first (its Latin and digits too, so a line keeps one look), then the Korean face
 /// for mixed Hebrew–Hangul lines, then the Japanese faces and the bundled Latin one for anything
-/// still lacking; Korean text does the same with the Korean faces — the script face (Hakgyoansim
-/// Namu) for plain Helvetica, the serif/sans and weight's own faces for a serif, bold or
+/// still lacking; Korean text does the same with the Korean faces — the default face
+/// (NanumGothic) for plain Helvetica, the serif/sans and weight's own faces for a serif, bold or
 /// Courier request — then
 /// the Japanese faces, and the bundled Latin face behind them, which covers the Latin, Greek and
 /// Cyrillic letters they lack (#2593: the Japanese faces have no қ, ғ, ҳ, ә, ө, ү, ұ or һ).
-/// The faces Korean text draws with, best first: the style's own Kore faces — the script face
-/// (Hakgyoansim Namu) for plain Helvetica, the serif/sans and weight's own faces for a serif,
+/// The faces Korean text draws with, best first: the style's own Kore faces — the default face
+/// (NanumGothic) for plain Helvetica, the serif/sans and weight's own faces for a serif,
 /// bold or Courier request (Courier has no Korean mono face and draws the sans face) — then the
 /// remaining Kore faces, then the Japanese faces and the bundled Latin face
 /// behind them, which cover the Latin, Greek and Cyrillic letters the Kore faces lack (#2593:
@@ -2249,16 +2249,16 @@ pub(crate) fn no_korean_font() -> EditError {
 pub(crate) fn korean_face_list(family: crate::added::Family, bold: bool) -> Result<Vec<&'static CraftFont>, EditError> {
     let serif = family == crate::added::Family::Times;
     let korean: Vec<&CraftFont> = if family == crate::added::Family::Helvetica && !bold {
-        // Plain Helvetica keeps the script face (Hakgyoansim Namu) first (#3981), taking a
+        // Plain Helvetica keeps the default face (NanumGothic) first (#3981), taking a
         // character it lacks from the sans face, then the Japanese faces. Times, bold text and
         // Courier draw the style's own faces instead (명조 → Hakgyoansim Sangjang, 고딕 →
         // Hakgyoansim Chulseokbu; Courier has no Korean mono face, so it draws the sans face:
         // Light plain, Bold bold), with the remaining Kore faces behind them. Syllables are
         // precomposed in Unicode, so one glyph per character draws them whole; a decomposed
         // jamo sequence draws as its individual jamo.
-        let namu = pdfcraft_fonts::document_korean_font().ok_or_else(no_korean_font)?;
-        std::iter::once(namu)
-            .chain(pdfcraft_fonts::document_korean_fonts_for_style(false, false).into_iter().filter(|f| !std::ptr::eq(*f, namu)))
+        let default = pdfcraft_fonts::document_korean_font().ok_or_else(no_korean_font)?;
+        std::iter::once(default)
+            .chain(pdfcraft_fonts::document_korean_fonts_for_style(false, false).into_iter().filter(|f| !std::ptr::eq(*f, default)))
             .collect()
     } else {
         let heads = pdfcraft_fonts::document_korean_fonts_for_style(serif, bold);
