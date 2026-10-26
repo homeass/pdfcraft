@@ -62,8 +62,9 @@ set). Without that variable `CRAFT_FONTS` is empty and everything below copes:
   text boxes, Fill & Sign text, form fields, headers, footers and watermarks all write with it
   (`shaped_text::appearance_lines` for appearances, whose glyph streams `store_streams` moves into
   the document). `wrap_with` never breaks a line before a Thai mark.
-- `ui_korean_fonts` / `document_korean_font`: the `Kore` faces (학교안심 나무 / Hakgyoansim Namu,
-  KERIS, OFL-1.1) for Korean interface text, and the face `pdfcraft-render` substitutes for
+- `ui_korean_fonts` / `document_korean_font`: the `Kore` faces for Korean interface text — the
+  default face is NanumGothic (나눔고딕, Naver, OFL-1.1), with Hakgyoansim Namu (학교안심 나무,
+  KERIS, OFL-1.1) behind it — and the face `pdfcraft-render` substitutes for
   non-embedded Adobe-Korea1 CID fonts, while `fallback` reports it as the `ScriptFace` for
   `Korea1`/`KR` orderings. `[]`/`None` without a craft-fonts input that has a Korean face.
 - `craft_glyph(face, ch)` and `face_has(bytes, ch)`: bounded outlines and glyph coverage for any bundled face.
