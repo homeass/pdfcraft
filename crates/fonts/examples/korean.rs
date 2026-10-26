@@ -1,8 +1,9 @@
-//! Feasibility check for the Korean craft face: sets Korean text in 학교안심 나무 (Hakgyoansim
-//! Namu), writes a one-page PDF, and prints where it went. Run it against a craft-fonts checkout:
+//! Feasibility check for the Korean craft face: sets Korean text in 나눔고딕 (NanumGothic, the
+//! default Korean face), writes a one-page PDF, and prints where it went. Run it against a
+//! craft-fonts checkout:
 //!
 //! ```sh
-//! CRAFT_FONTS_DIR=../craft-fonts cargo run -p pdfcraft-fonts --example korean -- /tmp/namu-korean.pdf
+//! CRAFT_FONTS_DIR=../craft-fonts cargo run -p pdfcraft-fonts --example korean -- /tmp/nanum-korean.pdf
 //! ```
 
 use std::error::Error;
@@ -17,14 +18,14 @@ fn main() -> Result<(), Box<dyn Error>> {
     let Some(face) = pdfcraft_fonts::document_korean_font() else {
         return Err("built without a Korean craft face: build with CRAFT_FONTS_DIR=<craft-fonts checkout>".into());
     };
-    let path = std::env::args().nth(1).unwrap_or_else(|| "namu-korean.pdf".to_owned());
+    let path = std::env::args().nth(1).unwrap_or_else(|| "nanum-korean.pdf".to_owned());
 
     let mut doc = Document::new_empty();
     let mut fonts = Dict::new();
     let resource = pdfcraft_fonts::embedding::embed(&mut doc, &mut fonts, face.bytes, face.family).map_err(|e| e.to_string())?;
     let entry = fonts.get(resource.as_bytes()).ok_or("the embedding left no resource entry")?.clone();
 
-    let lines = ["한국어 테스트 문서", "학교안심 나무 · Namu", "가나다라마바사아자차카타파하"];
+    let lines = ["한국어 테스트 문서", "나눔고딕 · NanumGothic", "가나다라마바사아자차카타파하"];
     let body = {
         let font = doc.dict(&entry).ok_or("the embedded font dictionary is gone")?;
         let metrics = Metrics::from_dict(&doc, &font);

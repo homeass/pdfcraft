@@ -990,6 +990,7 @@ C", &picked
                 pdfcraft_fonts::document_korean_font()
             };
             head.map(|f| match f.family {
+                "NanumGothic" => "NanumGothic",
                 "Hakgyoansim Namu" => "Hakgyoansim Namu",
                 "Hakgyoansim Sangjang R" => "Hakgyoansim Sangjang",
                 "Hakgyoansim Chulseokbu TTF" => "Hakgyoansim Chulseokbu",

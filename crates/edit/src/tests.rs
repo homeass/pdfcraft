@@ -1270,17 +1270,18 @@ fn added_korean_text_is_written_and_read_back() {
         assert!(mapped.contains(&format!("<{hex}>")), "{ch} in {mapped}");
     }
     let font_name = |f: &Dict| doc.resolve(f.get(b"FontDescriptor").unwrap()).as_dict().unwrap().name(b"FontName").map(<[u8]>::to_vec);
-    assert!(korean.iter().any(|f| font_name(f).as_deref() == Some(&b"HakgyoansimNamu"[..])));
+    assert!(korean.iter().any(|f| font_name(f).as_deref() == Some(&b"NanumGothic"[..])));
     // Reopening reports the Korean face, and the Latin segment rode the item's standard font.
     let lines = text::text_lines(&doc, 0).unwrap();
-    assert!(lines.iter().any(|l| l.text == "회신 B12 부탁입니다" && l.base_font.contains("Hakgyoansim")), "{lines:?}");
+    assert!(lines.iter().any(|l| l.text == "회신 B12 부탁입니다" && l.base_font.contains("NanumGothic")), "{lines:?}");
     let page0 = streams(&doc, 0);
     let item = page0.iter().find(|s| s.contains("B12")).unwrap();
     assert!(item.contains("/PCFHelvetica"), "{item}");
 }
 
-/// The style's own Korean face: plain Helvetica → Namu, Times → Sangjang, Courier → Chulseokbu
-/// Light (no Korean mono face exists), bold → Chulseokbu Bold (never a synthesized weight).
+/// The style's own Korean face: plain Helvetica → NanumGothic (the default face), Times →
+/// Sangjang, Courier → Chulseokbu Light (no Korean mono face exists), bold → Chulseokbu Bold
+/// (never a synthesized weight).
 #[test]
 fn added_korean_text_draws_the_style_the_request_asks_for() {
     if pdfcraft_fonts::document_korean_font().is_none() {
@@ -1290,7 +1291,7 @@ fn added_korean_text_draws_the_style_the_request_asks_for() {
         return;
     }
     for (family, bold, expected) in [
-        (Family::Helvetica, false, "HakgyoansimNamu"),
+        (Family::Helvetica, false, "NanumGothic"),
         (Family::Times, false, "HakgyoansimSangjangR"),
         (Family::Courier, false, "HakgyoansimChulseokbuTTF"),
         (Family::Helvetica, true, "HakgyoansimChulseokbuTTF"),
@@ -1783,8 +1784,9 @@ fn japanese_paragraph_uses_unicode_type3_fallback() {
     assert_eq!(text::text_blocks(&reopened, 0).unwrap()[0].text, replacement);
 }
 
-/// Korean replacement text keeps its craft face (Hakgyoansim Namu): Hangul and the Latin inside
-/// the line draw from it, the resource is `PCKo`-prefixed, and both openings report the face.
+/// Korean replacement text keeps its craft face (NanumGothic, the default Korean face): Hangul
+/// and the Latin inside the line draw from it, the resource is `PCKo`-prefixed, and both openings
+/// report the face.
 #[test]
 fn korean_replacement_text_uses_the_korean_face() {
     if pdfcraft_fonts::document_korean_font().is_none() {
@@ -1797,7 +1799,7 @@ fn korean_replacement_text_uses_the_korean_face() {
     for d in [&doc, &reopen(&doc)] {
         let lines = text::text_lines(d, 0).unwrap();
         assert_eq!(lines[0].text, replacement);
-        assert!(lines[0].base_font.contains("Hakgyoansim"), "{} should report the Korean face", lines[0].base_font);
+        assert!(lines[0].base_font.contains("NanumGothic"), "{} should report the Korean face", lines[0].base_font);
     }
     let p = pdfcraft_model::pages(&doc).swap_remove(0);
     let res = doc.resolve(p.dict.get(b"Resources").unwrap());

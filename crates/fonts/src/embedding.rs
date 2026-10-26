@@ -382,7 +382,7 @@ mod tests {
         };
         let mut doc = Document::new_empty();
         let mut fonts = Dict::new();
-        let name = embed(&mut doc, &mut fonts, face.bytes, "Hakgyoansim Namu").unwrap();
+        let name = embed(&mut doc, &mut fonts, face.bytes, face.family).unwrap();
         let font = doc.dict(fonts.get(name.as_bytes()).unwrap()).unwrap();
         let m = Metrics::from_dict(&doc, &font);
         // The modern syllable block lives in the BMP, so UCS-2 CIDs cover it.
