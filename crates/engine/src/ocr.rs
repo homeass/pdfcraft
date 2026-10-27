@@ -19,7 +19,7 @@ pub struct OcrSettings {
     /// Resolution pages are rendered at for recognition (Acrobat's "Downsample to" choices).
     pub dpi: f32,
     /// Language code from [`LANGUAGES`]: "en" goes through the Latin ocrs models, "ko" through
-    /// the macOS Vision framework (which is also the only build that offers it).
+    /// the macOS Vision framework or, on Linux, the PaddleOCR models.
     pub language: String,
     /// Leave pages that already have text alone (Acrobat reports "page contains renderable
     /// text" and skips them). When `false`, such pages are read too (a picture on a page that

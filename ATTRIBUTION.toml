@@ -3381,6 +3381,32 @@ kind = "model"
 usage = "Scan & OCR: reads the words it finds (cargo xtask models)"
 sha256 = "86c145c2edb96c8caed5b1ebb8f44d706408922211451c309c625157dd6061c5"
 
+[[fetched]]
+file = "korean-recognition.onnx"
+url = "https://huggingface.co/monkt/paddleocr-onnx/resolve/main/languages/korean/rec.onnx"
+title = "PaddleOCR PP-OCRv5 mobile Korean text recognition model (ONNX conversion)"
+author = "PaddlePaddle (PaddleOCR, korean_PP-OCRv5_mobile_rec); ONNX conversion by the monkt/paddleocr-onnx project"
+source = "https://huggingface.co/monkt/paddleocr-onnx (conversion of PaddleOCR's korean_PP-OCRv5_mobile_rec; upstream: https://github.com/PaddlePaddle/PaddleOCR)"
+licence = "Apache-2.0"
+licence_url = "https://www.apache.org/licenses/LICENSE-2.0.txt"
+licence_sha256 = "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+kind = "model"
+usage = "Scan & OCR on Linux: reads Korean words (cargo xtask models)"
+sha256 = "322f140154c820fcb83c3d24cfe42c9ec70dd1a1834163306a7338136e4f1eaa"
+
+[[fetched]]
+file = "korean-dict.txt"
+url = "https://huggingface.co/monkt/paddleocr-onnx/resolve/main/languages/korean/dict.txt"
+title = "PaddleOCR PP-OCRv5 Korean character dictionary (ppocrv5_korean_dict)"
+author = "PaddlePaddle (PaddleOCR); packaged by the monkt/paddleocr-onnx project"
+source = "https://huggingface.co/monkt/paddleocr-onnx (upstream: https://github.com/PaddlePaddle/PaddleOCR)"
+licence = "Apache-2.0"
+licence_url = "https://www.apache.org/licenses/LICENSE-2.0.txt"
+licence_sha256 = "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+kind = "model"
+usage = "Scan & OCR on Linux: the character classes of the Korean recognition model, in trained order (cargo xtask models)"
+sha256 = "a88071c68c01707489baa79ebe0405b7beb5cca229f4fc94cc3ef992328802d7"
+
 [[build_input]]
 name = "craft-fonts"
 option = "CRAFT_FONTS_DIR"
@@ -3402,6 +3428,17 @@ licence_file = "LICENSE-MIT"
 kind = "document"
 usage = "Signature validation tests (crates/sign/tests/it/pdf.rs): the legacy adbe.x509.rsa_sha1 format"
 sha256 = "b77bfb21166f4bd043597e45a1ea28b9d9f4ba6df0142b3a0fc8b7f8e0fc111b"
+
+[[asset]]
+path = "crates/ocr/tests/data/fixture-ko.png"
+title = "Korean OCR test page: three lines of Hangul and Latin text"
+author = "PdfCraft contributors"
+source = "Contributor-original: generated with PIL drawing the openly licensed NanumGothic face onto a white A4 page at 200 dpi; the font drew the picture only and is not bundled (see crates/ocr/tests/data/README.md)"
+licence = "MIT OR Apache-2.0"
+licence_file = "LICENSE-MIT"
+kind = "image"
+usage = "Korean recognition end-to-end test (crates/ocr/src/paddle.rs); read by the models, never bundled"
+sha256 = "72d1cf01b56c107ed120178f956b303943284b03cc01da8e6b744c9499522619"
 
 [[asset]]
 path = "assets/icons/monitor.svg"

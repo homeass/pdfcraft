@@ -7,13 +7,16 @@
 //! searchable image (Acrobat's "Searchable Image (Exact)": the image is left untouched).
 //!
 //! The ocrs models read the Latin alphabet (English and other languages written without
-//! accents). Korean is read on macOS 13 and later by the system Vision framework;
-//! [`language_available`] tells the UI which languages this machine can read.
+//! accents). Korean is read on macOS 13 and later by the system Vision framework, and on Linux
+//! by PaddleOCR's PP-OCRv5 Korean model ([`language_available`] tells the UI which languages
+//! this machine can read).
 
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 use std::path::{Path, PathBuf};
 
+#[cfg(target_os = "linux")]
+mod paddle;
 #[cfg(target_os = "macos")]
 mod vision;
 
@@ -29,20 +32,24 @@ pub const RECOGNITION_MODEL: &str = "text-recognition.onnx";
 pub const ALPHABET: &str = " 0123456789!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~€ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 
 /// The languages the models read (ISO 639-1). The ocrs models read the Latin alphabet; Korean
-/// is read on macOS 13 and later by the system Vision framework ([`language_available`]).
-#[cfg(target_os = "macos")]
+/// is read on macOS 13 and later by the system Vision framework, and on Linux by the PaddleOCR
+/// models ([`language_available`]).
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 pub const LANGUAGES: &[(&str, &str)] = &[("en", "English"), ("ko", "Korean")];
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
 pub const LANGUAGES: &[(&str, &str)] = &[("en", "English")];
 
 /// Whether this build can recognize `language` now: English needs the models, Korean the macOS
-/// Vision framework. The Scan & OCR dialog lists only what is available here.
+/// Vision framework or the Linux PaddleOCR models. The Scan & OCR dialog lists only what is
+/// available here.
 pub fn language_available(language: &str) -> bool {
     match language {
         // Always offered: a build without the models says so when recognition starts.
         "en" => true,
         #[cfg(target_os = "macos")]
         "ko" => vision::korean_available(),
+        #[cfg(target_os = "linux")]
+        "ko" => paddle::PaddleModels::find().is_some(),
         _ => false,
     }
 }
@@ -137,6 +144,10 @@ impl Line {
 /// A loaded recogniser. Loading takes a moment; keep one and reuse it.
 pub struct Ocr {
     engine: ocrs::OcrEngine,
+    /// Korean recognition on Linux loads its models on first use, so English-only users never
+    /// pay for them; macOS reads Korean through Vision, which needs no model files.
+    #[cfg(target_os = "linux")]
+    korean: std::sync::Mutex<Option<std::sync::Arc<paddle::Korean>>>,
 }
 
 impl Ocr {
@@ -149,7 +160,11 @@ impl Ocr {
             ..Default::default()
         };
         let engine = ocrs::OcrEngine::new(params).map_err(|e| OcrError::Load("ocr engine".into(), e.to_string()))?;
-        Ok(Ocr { engine })
+        Ok(Ocr {
+            engine,
+            #[cfg(target_os = "linux")]
+            korean: std::sync::Mutex::new(None),
+        })
     }
 
     /// Load the models found by [`Models::find`].
@@ -158,8 +173,9 @@ impl Ocr {
     }
 
     /// Recognise the text in an RGBA (or RGB, or grey) image, `width` × `height` pixels, for
-    /// `language` from [`LANGUAGES`]. Korean runs on the macOS Vision framework; every other
-    /// language (and everything on other platforms) goes through the Latin ocrs models.
+    /// `language` from [`LANGUAGES`]. Korean runs on the macOS Vision framework or, on Linux,
+    /// the PaddleOCR models; every other language (and everything on other platforms) goes
+    /// through the Latin ocrs models.
     pub fn recognize(&self, language: &str, pixels: &[u8], width: u32, height: u32) -> Result<Vec<Line>, OcrError> {
         if width == 0 || height == 0 || pixels.is_empty() {
             return Err(OcrError::EmptyImage);
@@ -169,8 +185,23 @@ impl Ocr {
             {
                 return vision::recognize(pixels, width, height);
             }
-            #[cfg(not(target_os = "macos"))]
-            return Err(OcrError::Recognize("Korean recognition needs the macOS build".into()));
+            #[cfg(target_os = "linux")]
+            {
+                let korean = {
+                    let mut slot = self.korean.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                    if let Some(k) = slot.as_ref() {
+                        std::sync::Arc::clone(k)
+                    } else {
+                        let models = paddle::PaddleModels::find().ok_or(OcrError::NoModels)?;
+                        let korean = std::sync::Arc::new(paddle::Korean::load(&models)?);
+                        *slot = Some(std::sync::Arc::clone(&korean));
+                        korean
+                    }
+                };
+                return korean.recognize(pixels, width, height);
+            }
+            #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+            return Err(OcrError::Recognize("Korean recognition needs the macOS or Linux build".into()));
         }
         // ocrs wants 1 or 3 channels.
         let rgb: std::borrow::Cow<[u8]> = if pixels.len() == (width * height * 4) as usize {
