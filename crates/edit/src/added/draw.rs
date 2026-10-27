@@ -4,11 +4,12 @@ use super::layout::{
 };
 use super::types::{AddedText, Align, Family, Ink};
 use super::{
-    Content, CraftFont, Dict, Document, EditError, GlyphError, GlyphOutline, Object, PdfString, ShapedCluster, ShapedScript, align_code, craft_has,
-    japanese_glyph_from, literal, matrix_number, n, shaped_glyph, win_ansi,
+    Content, CraftFont, Dict, Document, EditError, GlyphError, GlyphOutline, Object, PdfString, ShapedCluster, ShapedScript, align_code, check,
+    check_on_top, craft_advance, craft_has, japanese_glyph_from, literal, matrix_number, n, page_list, place_tagged, shaped_glyph, win_ansi,
 };
 use pdfcraft_fonts::shaped_text::{self, ShapedFonts};
 use crate::text::is_korean;
+use std::fmt::Write as _;
 
 fn font_name(base: &str) -> String {
     format!("PCF{}", base.replace('-', ""))
@@ -140,6 +141,137 @@ pub(super) fn draw_laid_shaped(
         out.extend_from_slice(b"EMC\n");
     }
     out.extend_from_slice(b"ET\n");
+    Ok(())
+}
+
+/// A word the recognizer found, in PDF user space: the bottom-left corner of its box
+/// (`origin`) and the vectors along its bottom (`across`, in reading direction) and left
+/// (`up`) edges. Mirrors the recognizer's own word type, kept independent of that crate.
+#[derive(Clone, Debug, PartialEq)]
+pub struct OcrWord {
+    pub text: String,
+    pub origin: [f64; 2],
+    pub across: [f64; 2],
+    pub up: [f64; 2],
+}
+
+/// Where a Hangul syllable's ink stands against its em, as the invisible OCR layer reads it:
+/// the Korean faces draw the block from about this far above the baseline down to this far
+/// below, so a recognized box of height `h` takes a text matrix of `h / (KO_TOP - KO_BOTTOM)`.
+/// The Latin layer's `text_layer` counterpart uses Helvetica's cap height and descender.
+const KO_TOP: f64 = 0.93;
+const KO_BOTTOM: f64 = -0.21;
+
+/// The invisible text over a recognized Korean page: each word is drawn from the craft-fonts
+/// Korean faces through the same Type 3 pipeline the editor uses when it writes Hangul into a
+/// document, so the glyphs travel with the faces' ToUnicode map and the words come back on
+/// copy, search and selection. Everything is painted in rendering mode 3 inside `/OCR` marked
+/// content, exactly like the Latin layer, and the page's picture is left untouched. A word the
+/// Korean faces cannot draw is left out of the layer rather than written as `?`.
+///
+/// `words` should be the ones the recognizer's `fits_layer_font` rejects — pure-Latin words
+/// belong to the Helvetica layer. Does nothing when there is nothing it can draw.
+pub fn ocr_korean_layer(doc: &mut Document, page: usize, words: &[OcrWord]) -> Result<(), EditError> {
+    let all = page_list(doc);
+    check(&[page], all.len())?;
+    let p = &all[page];
+    check_on_top(doc, p)?;
+    let faces = crate::text::korean_face_list(Family::Helvetica, false)?;
+
+    // One cluster per character: Hangul composes without shaping (the visible path does the
+    // same, see `shape_korean`), and a character no Korean face holds is skipped here, so it
+    // is skipped from its word rather than turned into a `?`.
+    let mut pieces: Vec<Vec<ShapedCluster>> = Vec::with_capacity(words.len());
+    for w in words {
+        let mut pw = Vec::new();
+        for c in w.text.chars() {
+            if c.is_whitespace() {
+                continue;
+            }
+            let Some(advance) = faces.iter().find_map(|f| craft_advance(f, c)) else { continue };
+            pw.push(ShapedCluster { script: ShapedScript::Korean, glyphs: vec![(u32::from(c), [0.0, 0.0])], advance, text: c.to_string() });
+        }
+        pieces.push(pw);
+    }
+    if pieces.iter().all(|pw| pw.is_empty()) {
+        return Ok(());
+    }
+
+    // The page's resources, read before any object is created.
+    let pres = p.dict.get(b"Resources").map(|r| doc.resolve(r)).and_then(|r| r.as_dict().cloned()).unwrap_or_default();
+    let taken = pres.get(b"Font").map(|f| doc.resolve(f)).and_then(|f| f.as_dict().cloned()).unwrap_or_default();
+
+    // One glyph per distinct cluster in Type 3 fonts named like the visible path's, so
+    // `own_fonts` cleanup stays uniform across Korean content. Every outline is read before
+    // anything is written: a missing face fails the whole edit rather than leaving half a
+    // layer on the page (never-crash).
+    let mut ocr_fonts = Dict::new();
+    let ko = ShapedFonts::new(
+        pieces.iter().flatten(),
+        |_, id| korean_outline(&faces, id),
+        &taken,
+        &mut ocr_fonts,
+        "PCKo",
+        faces.first().map(|f| f.family),
+        &mut |o| Object::Ref(doc.add(o)),
+    )
+    .map_err(|(e, c)| korean_error(e, &c.text))?;
+
+    // Content: every word's matrix stretches its run codes into the box the recognizer
+    // measured, invisibly (`3 Tr`), as one text block inside the `/OCR` marked content.
+    let mut out: Vec<u8> = b"/OCR BMC\nq\nBT\n3 Tr\n".to_vec();
+    let mut drawn = false;
+    for (w, pw) in words.iter().zip(pieces.iter()) {
+        if pw.is_empty() {
+            continue;
+        }
+        let natural: f64 = pw.iter().map(|cl| cl.advance).sum();
+        let (ux, uy) = (w.up[0], w.up[1]);
+        let up_len = ux.hypot(uy);
+        let across = [w.across[0], w.across[1]];
+        if !natural.is_finite() || natural <= 0.0 || !up_len.is_finite() || up_len <= 0.0 {
+            continue;
+        }
+        let em = [ux / (KO_TOP - KO_BOTTOM), uy / (KO_TOP - KO_BOTTOM)];
+        let o = [w.origin[0] - em[0] * KO_BOTTOM, w.origin[1] - em[1] * KO_BOTTOM];
+        // Codes grouped into runs by the font they live in; one Tm per run.
+        let mut runs: Vec<(&str, String)> = Vec::new();
+        for cl in pw {
+            let Some((name, code)) = ko.code(cl) else { continue };
+            match runs.last_mut() {
+                Some((cur, hex)) if *cur == name => {
+                    let _ = write!(hex, "{code:02X}");
+                }
+                _ => runs.push((name, format!("{code:02X}"))),
+            }
+        }
+        if runs.is_empty() {
+            continue;
+        }
+        let ax = [across[0] / natural, across[1] / natural];
+        for (name, hex) in runs {
+            out.extend(format!("/{name} 1 Tf\n{} {} {} {} {} {} Tm\n<{hex}> Tj\n", n(ax[0]), n(ax[1]), n(em[0]), n(em[1]), n(o[0]), n(o[1])).bytes());
+            drawn = true;
+        }
+    }
+    out.extend_from_slice(b"ET\nQ\nEMC\n");
+    if !drawn {
+        // Nothing fit the boxes: leave the page alone. (The chunk fonts above stay as
+        // unreferenced objects, which a full save drops; a page never shows a font it does
+        // not name.)
+        return Ok(());
+    }
+
+    let mut res_fonts = taken;
+    for (name, font) in ocr_fonts.iter() {
+        res_fonts.set(name.clone(), font.clone());
+    }
+    let mut pres = pres;
+    pres.set(b"Font".to_vec(), Object::Dict(res_fonts));
+    doc.update_dict(p.obj, |d| d.set(b"Resources".to_vec(), Object::Dict(pres)))?;
+    let mut list = page_list(doc);
+    let p = list.swap_remove(page);
+    place_tagged(doc, &p, "OCR", out, false)?;
     Ok(())
 }
 

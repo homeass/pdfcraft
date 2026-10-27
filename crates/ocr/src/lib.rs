@@ -16,7 +16,8 @@
 //!
 //! The ocrs models read the Latin alphabet (English and other languages written without
 //! accents); Tesseract (the `tesseract` module, off the web build) reads whatever its installed
-//! language packs cover.
+//! language packs cover. Korean is read on macOS 13 and later by the system Vision framework;
+//! [`language_available`] tells the UI which languages this machine can read.
 
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
@@ -30,10 +31,12 @@ pub mod tesseract;
 pub use confidence::{ConfidenceBand, band_for, is_suspect, low_confidence};
 pub use merge::{MergeStrategy, StrategyOutcome, mean_confidence, recognize_with_strategy, rover_merge};
 pub use ocrs::{
-    ALPHABET, DETECTION_MODEL, DETECTION_MODEL_SHA256, LANGUAGES, Models, Ocr, OcrsRecognizer, RECOGNITION_MODEL, RECOGNITION_MODEL_SHA256,
+    ALPHABET, DETECTION_MODEL, DETECTION_MODEL_SHA256, Models, Ocr, OcrsRecognizer, RECOGNITION_MODEL, RECOGNITION_MODEL_SHA256,
 };
 
 pub use pdfcraft_fonts::TextPlan;
+#[cfg(target_os = "macos")]
+pub mod vision;
 pub use pdfcraft_fonts::helvetica_width;
 
 /// Hard cap on either side of an image any code in this crate will touch, in pixels; larger
@@ -44,6 +47,25 @@ pub const MAX_SIDE: u32 = 10_000;
 /// multiply out to a raster no engine should have to read; larger images are rejected with
 /// [`OcrError::ImageTooLarge`] instead of being processed.
 pub const MAX_PIXELS: u32 = 64_000_000;
+
+/// The languages the models read (ISO 639-1). The ocrs models read the Latin alphabet; Korean
+/// is read on macOS 13 and later by the system Vision framework ([`language_available`]).
+#[cfg(target_os = "macos")]
+pub const LANGUAGES: &[(&str, &str)] = &[("en", "English"), ("ko", "Korean")];
+#[cfg(not(target_os = "macos"))]
+pub use ocrs::LANGUAGES;
+
+/// Whether this build can recognize `language` now: English needs the models, Korean the macOS
+/// Vision framework. The Scan & OCR dialog lists only what is available here.
+pub fn language_available(language: &str) -> bool {
+    match language {
+        // Always offered: a build without the models says so when recognition starts.
+        "en" => true,
+        #[cfg(target_os = "macos")]
+        "ko" => vision::korean_available(),
+        _ => false,
+    }
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum OcrError {
@@ -77,6 +99,13 @@ pub struct OcrImage {
     width: u32,
     height: u32,
     rgba: Vec<u8>,
+}
+
+/// Whether `text` survives the WinAnsi Helvetica content [`text_layer`] writes: the standard
+/// fonts hold no Hangul, and `?` would stand in for it. Words that do not fit belong to
+/// `pdfcraft_edit::ocr_korean_layer`, which writes them with the Korean craft faces.
+pub fn fits_layer_font(text: &str) -> bool {
+    text.chars().all(pdfcraft_fonts::win_ansi_encodable)
 }
 
 impl OcrImage {
