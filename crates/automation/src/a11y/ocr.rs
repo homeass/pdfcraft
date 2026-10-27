@@ -509,10 +509,14 @@ impl Automation {
         Ok(json!({ "path": path.to_string_lossy(), "count": words.len(), "words": words }))
     }
 
+    /// Whether text recognition's models are installed, the directories searched for them (in
+    /// order), and the languages it reads, each as a code, a name and whether this machine can
+    /// read it ("ko" needs the macOS Vision framework, not the models).
     pub(crate) fn ocr_status(&self) -> Result<Value> {
         use pdfcraft_engine::ocr;
         let dirs: Vec<String> = ocr::Models::search_dirs().iter().map(|d| d.to_string_lossy().into_owned()).collect();
-        let langs: Vec<Value> = ocr::LANGUAGES.iter().map(|(c, n)| json!({ "code": c, "name": n })).collect();
+        let langs: Vec<Value> =
+            ocr::LANGUAGES.iter().map(|(c, n)| json!({ "code": c, "name": n, "available": ocr::language_available(c) })).collect();
         let engines: Vec<Value> = ocr::engines_status()
             .iter()
             .map(|e| {

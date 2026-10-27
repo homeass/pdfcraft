@@ -16,7 +16,7 @@ use pdfcraft_render::{PageInfo, PageRenderer, RenderConfig, RenderRequest, Reque
 
 pub use pdfcraft_ocr::{
     ConfidenceBand, DETECTION_MODEL, LANGUAGES, Line, MergeStrategy, Models, Ocr, OcrError, OcrImage, PlacedWord, RECOGNITION_MODEL, Recognizer,
-    StrategyOutcome, Word, band_for, is_suspect, lines_from_json, low_confidence,
+    StrategyOutcome, Word, band_for, is_suspect, language_available, lines_from_json, low_confidence,
 };
 
 use crate::{DocId, Edit, EditError, Session};
@@ -108,7 +108,8 @@ impl OutputMode {
 pub struct OcrSettings {
     /// Resolution pages are rendered at for recognition (Acrobat's "Downsample to" choices).
     pub dpi: f32,
-    /// Language code from [`LANGUAGES`] (the models read the Latin alphabet, whatever this says).
+    /// Language code from [`LANGUAGES`]: "en" goes through the Latin ocrs models, "ko" through
+    /// the macOS Vision framework (which is also the only build that offers it).
     pub language: String,
     /// Leave pages that already have text alone (Acrobat reports "page contains renderable
     /// text" and skips them). When `false`, such pages are read too (a picture on a page that
@@ -730,6 +731,7 @@ impl OcrJob {
                 Some(Err(skipped)) => out.push(skipped),
                 Some(Ok(shot)) => out.push(shot.read(recognizers)),
             }
+
         }
         progress(total, total);
         out
@@ -804,6 +806,22 @@ impl OcrSteps {
             return Err(skip(&e));
         }
         let full = pdfcraft_ocr::OcrImage::new(shot.width, shot.height, shot.rgba.to_vec()).map_err(|e| skip(&e.to_string()))?;
+        // Korean goes through the macOS Vision framework on the raw raster: no models, no
+        // preprocess or region. Everything else uses the multi-engine path below.
+        if settings.language == "ko" {
+            return Ok(OcrShot {
+                page,
+                image: Some(full),
+                inverse: pdfcraft_ocr::preprocess::InverseTransform::identity(),
+                offset: [0.0, 0.0],
+                pixels_per_point: shot.width as f32 / info.width.max(1e-3),
+                info,
+                existing,
+                strategy: settings.strategy,
+                options: pdfcraft_ocr::RecognizeOptions { language: settings.language.clone() },
+                output_mode: settings.output_mode,
+            });
+        }
         // The optional region: crop the rendered page, clamped; an empty region skips the
         // page with a named reason (nothing was asked of it).
         let (image, offset) = match settings.region {
@@ -881,6 +899,9 @@ impl OcrShot {
 
     /// Recognise the image with `recognizers` (per the job's strategy) and place the words.
     pub fn read(&self, recognizers: &Recognizers) -> OcrPage {
+        if self.options.language == "ko" {
+            return self.read_korean();
+        }
         let Some(image) = &self.image else { return self.place(Err("the page's image was handed to another reader".into())) };
         let outcome = pdfcraft_ocr::recognize_with_strategy(
             recognizers.primary.as_ref(),
@@ -890,6 +911,25 @@ impl OcrShot {
             &self.options,
         );
         self.place(outcome.map_err(|e| e.to_string()))
+    }
+
+    /// Recognise Korean with the macOS Vision framework (no models): the shot's own pixels,
+    /// placed like any other reading.
+    #[cfg(target_os = "macos")]
+    fn read_korean(&self) -> OcrPage {
+        let Some(image) = &self.image else { return self.place(Err("the page's image was handed to another reader".into())) };
+        let lines = match pdfcraft_ocr::vision::recognize(image.rgba(), image.width(), image.height()) {
+            Ok(l) => l,
+            Err(e) => return self.place(Err(e.to_string())),
+        };
+        self.place(Ok(pdfcraft_ocr::StrategyOutcome { lines, secondary_ran: false, notes: Vec::new() }))
+    }
+
+    /// Korean needs the macOS build (Vision framework): refuse loudly instead of silently
+    /// reading nothing.
+    #[cfg(not(target_os = "macos"))]
+    fn read_korean(&self) -> OcrPage {
+        self.place(Err("Korean recognition needs the macOS build (Vision framework)".into()))
     }
 
     /// Put the lines recognised in [`Self::image`] on the page (or skip the page with the

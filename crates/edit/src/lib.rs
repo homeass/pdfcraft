@@ -69,8 +69,8 @@ mod page_streams;
 pub use hairlines::{Fixed as HairlinesFixed, Hairlines, fix_hairlines};
 pub mod added;
 pub use added::{
-    Added, AddedImage, AddedText, Align, Content, Family, Ink, MarkerScan, add_content, delete_content, first_undrawable, isolate_content,
-    list_added, scan_markers, update_content,
+    Added, AddedImage, AddedText, Align, Content, Family, Ink, MarkerScan, OcrWord, add_content, delete_content, first_undrawable, isolate_content,
+    list_added, ocr_korean_layer, scan_markers, update_content,
 };
 
 mod apply;
