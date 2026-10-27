@@ -7695,3 +7695,54 @@ fn a_run_of_spaces_in_a_subset_without_a_space_glyph_keeps_its_width() {
     let content = String::from_utf8_lossy(&page_content_bytes(&reopen(&doc), 0)).into_owned();
     assert_eq!(content.matches("[-330] TJ").count(), 5, "{content}");
 }
+
+/// The invisible Korean OCR layer: recognized boxes become searchable Type 3 words with the
+/// Korean face's ToUnicode, and a word no Korean face can draw is dropped rather than written
+/// as `?` — an all-undrawable layer leaves the page's content alone.
+#[test]
+fn ocr_korean_layer_is_invisible_searchable_and_skips_undrawable_words() {
+    if pdfcraft_fonts::document_korean_font().is_none() {
+        return; // built without craft-fonts: the layer has no Korean face to draw with
+    }
+    let mut doc = fixture();
+    let words = [
+        OcrWord { text: "회신".into(), origin: [72.0, 700.0], across: [24.0, 0.0], up: [0.0, 12.0] },
+        OcrWord { text: "부탁".into(), origin: [100.0, 700.0], across: [24.0, 0.0], up: [0.0, 12.0] },
+        OcrWord { text: "\u{1F600}".into(), origin: [130.0, 700.0], across: [12.0, 0.0], up: [0.0, 12.0] },
+    ];
+    ocr_korean_layer(&mut doc, 0, &words).unwrap();
+    let doc = reopen(&doc);
+    let page0 = streams(&doc, 0);
+    let layer = page0.iter().find(|s| s.contains("/OCR BMC")).expect("the Korean OCR layer stream");
+    assert!(layer.contains("3 Tr") && layer.contains("/PCKo"), "{layer}");
+    // The Hangul comes back through extraction (the invisible words are searchable).
+    let lines = text::text_lines(&doc, 0).unwrap();
+    let joined: String = lines.iter().map(|l| l.text.as_str()).collect::<Vec<_>>().join(" ");
+    assert!(joined.contains("회신") && joined.contains("부탁"), "{joined:?}");
+    assert!(!joined.contains('\u{1F600}'), "the undrawable word is dropped, not written as ?");
+}
+
+/// The same page read twice (a second Recognize over an existing Korean layer) does not grow a
+/// second copy of the layer's fonts or leave the page's graphics state open.
+#[test]
+fn ocr_korean_layer_balances_its_marked_content() {
+    if pdfcraft_fonts::document_korean_font().is_none() {
+        return;
+    }
+    let mut doc = fixture();
+    ocr_korean_layer(&mut doc, 0, &[OcrWord { text: "테스트".into(), origin: [72.0, 700.0], across: [48.0, 0.0], up: [0.0, 12.0] }]).unwrap();
+    let content = streams(&reopen(&doc), 0).into_iter().find(|s| s.contains("/OCR BMC")).expect("layer");
+    let (mut depth, mut bmc, mut emc) = (0i32, 0, 0);
+    for tok in content.split_ascii_whitespace() {
+        match tok {
+            "q" => depth += 1,
+            "Q" => depth -= 1,
+            "BMC" => bmc += 1,
+            "EMC" => emc += 1,
+            "Tf" | "Tm" => assert!(depth > 0, "`{tok}` outside q … Q in {content:?}"),
+            _ => {}
+        }
+        assert!(depth >= 0, "unbalanced Q in {content:?}");
+    }
+    assert_eq!((depth, bmc, emc), (0, 1, 1), "{content}");
+}
