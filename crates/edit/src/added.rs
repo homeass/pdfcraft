@@ -17,7 +17,7 @@ use pdfcraft_fonts::{
 };
 use unicode_bidi::{Level, ParagraphBidiInfo};
 
-use crate::{EditError, MarkKind, check, contents, matrix_number, n, page_list, place_tagged};
+use crate::{EditError, MarkKind, check, check_on_top, contents, matrix_number, n, page_list, place_tagged};
 
 mod draw;
 mod layout;
@@ -26,6 +26,7 @@ mod types;
 
 #[cfg(test)]
 use draw::{GLYPHS_PER_FONT, LaidLine, draw_laid_shaped};
+pub use draw::{OcrWord, ocr_korean_layer};
 #[cfg(test)]
 use layout::Piece;
 #[cfg(test)]

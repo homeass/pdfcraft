@@ -14,7 +14,8 @@ use std::time::{Duration, Instant};
 use pdfcraft_render::{PageInfo, PageRenderer, RenderConfig, RenderRequest, RequestKind};
 
 pub use pdfcraft_ocr::{
-    ConfidenceBand, LANGUAGES, MergeStrategy, Models, Ocr, OcrError, PlacedWord, Recognizer, band_for, is_suspect, low_confidence,
+    ConfidenceBand, LANGUAGES, MergeStrategy, Models, Ocr, OcrError, PlacedWord, Recognizer, band_for, is_suspect, language_available,
+    low_confidence,
 };
 
 use crate::{DocId, Edit, EditError, Session};
@@ -106,7 +107,8 @@ impl OutputMode {
 pub struct OcrSettings {
     /// Resolution pages are rendered at for recognition (Acrobat's "Downsample to" choices).
     pub dpi: f32,
-    /// Language code from [`LANGUAGES`] (the models read the Latin alphabet, whatever this says).
+    /// Language code from [`LANGUAGES`]: "en" goes through the Latin ocrs models, "ko" through
+    /// the macOS Vision framework (which is also the only build that offers it).
     pub language: String,
     /// Leave pages that already have text alone (Acrobat reports "page contains renderable
     /// text" and skips them). When `false`, such pages are read too (a picture on a page that
@@ -720,64 +722,90 @@ impl OcrJob {
                 out.push(skip(&e));
                 continue;
             }
-            let full = match pdfcraft_ocr::OcrImage::new(shot.width, shot.height, shot.rgba.to_vec()) {
-                Ok(img) => img,
-                Err(e) => {
-                    out.push(skip(&e.to_string()));
+            // Korean goes through the macOS Vision framework (no models, no preprocess/region);
+            // everything else uses the multi-engine path with preprocessing and region support.
+            let (outcome, inverse, offset) = if self.settings.language == "ko" {
+                #[cfg(not(target_os = "macos"))]
+                {
+                    out.push(skip("Korean recognition needs the macOS build (Vision framework)"));
                     continue;
                 }
-            };
-            // The optional region: crop the rendered page, clamped; an empty region skips the
-            // page with a named reason (nothing was asked of it).
-            let (image, offset) = match self.settings.region {
-                None => (full, [0.0f32; 2]),
-                Some(region) => match clamp_region(region, shot.width, shot.height) {
-                    Some([x0, y0, x1, y1]) => match crop(&full, x0, y0, x1, y1) {
-                        Some(c) => (c, [x0 as f32, y0 as f32]),
+                #[cfg(target_os = "macos")]
+                {
+                    let lines = match pdfcraft_ocr::vision::recognize(&shot.rgba, shot.width, shot.height) {
+                        Ok(l) => l,
+                        Err(e) => {
+                            out.push(skip(&e.to_string()));
+                            continue;
+                        }
+                    };
+                    (
+                        pdfcraft_ocr::StrategyOutcome { lines, secondary_ran: false, notes: Vec::new() },
+                        pdfcraft_ocr::preprocess::InverseTransform::identity(),
+                        [0.0f32; 2],
+                    )
+                }
+            } else {
+                let full = match pdfcraft_ocr::OcrImage::new(shot.width, shot.height, shot.rgba.to_vec()) {
+                    Ok(img) => img,
+                    Err(e) => {
+                        out.push(skip(&e.to_string()));
+                        continue;
+                    }
+                };
+                // The optional region: crop the rendered page, clamped; an empty region skips the
+                // page with a named reason (nothing was asked of it).
+                let (image, offset) = match self.settings.region {
+                    None => (full, [0.0f32; 2]),
+                    Some(region) => match clamp_region(region, shot.width, shot.height) {
+                        Some([x0, y0, x1, y1]) => match crop(&full, x0, y0, x1, y1) {
+                            Some(c) => (c, [x0 as f32, y0 as f32]),
+                            None => {
+                                out.push(skip("the selected region is empty"));
+                                continue;
+                            }
+                        },
                         None => {
-                            out.push(skip("the selected region is empty"));
+                            out.push(skip("the selected region is outside the page"));
                             continue;
                         }
                     },
-                    None => {
-                        out.push(skip("the selected region is outside the page"));
+                };
+                // Preprocessing sits between the page raster and recognition; its word boxes come
+                // back in processed coordinates and are mapped to the ORIGINAL raster's before
+                // placement. The render dpi is the real one (pixels per point × 72), never a
+                // fixed value.
+                let pre = pdfcraft_ocr::preprocess::preprocess(
+                    image,
+                    scale * 72.0,
+                    &pdfcraft_ocr::preprocess::PreprocessOptions {
+                        auto_rotate: self.settings.auto_rotate,
+                        deskew: self.settings.deskew,
+                        denoise: self.settings.denoise,
+                        binarize: self.settings.binarize,
+                    },
+                );
+                let (image, inverse) = match pre {
+                    Ok(p) => (p.image, p.inverse_transform),
+                    Err(e) => {
+                        out.push(skip(&e.to_string()));
                         continue;
                     }
-                },
-            };
-            // Preprocessing sits between the page raster and recognition; its word boxes come
-            // back in processed coordinates and are mapped to the ORIGINAL raster's before
-            // placement. The render dpi is the real one (pixels per point × 72), never a
-            // fixed value.
-            let pre = pdfcraft_ocr::preprocess::preprocess(
-                image,
-                scale * 72.0,
-                &pdfcraft_ocr::preprocess::PreprocessOptions {
-                    auto_rotate: self.settings.auto_rotate,
-                    deskew: self.settings.deskew,
-                    denoise: self.settings.denoise,
-                    binarize: self.settings.binarize,
-                },
-            );
-            let (image, inverse) = match pre {
-                Ok(p) => (p.image, p.inverse_transform),
-                Err(e) => {
-                    out.push(skip(&e.to_string()));
-                    continue;
-                }
-            };
-            let outcome = match pdfcraft_ocr::recognize_with_strategy(
-                recognizers.primary.as_ref(),
-                recognizers.secondary.as_deref(),
-                self.settings.strategy,
-                &image,
-                &options,
-            ) {
-                Ok(o) => o,
-                Err(e) => {
-                    out.push(skip(&e.to_string()));
-                    continue;
-                }
+                };
+                let outcome = match pdfcraft_ocr::recognize_with_strategy(
+                    recognizers.primary.as_ref(),
+                    recognizers.secondary.as_deref(),
+                    self.settings.strategy,
+                    &image,
+                    &options,
+                ) {
+                    Ok(o) => o,
+                    Err(e) => {
+                        out.push(skip(&e.to_string()));
+                        continue;
+                    }
+                };
+                (outcome, inverse, offset)
             };
             let scale = shot.width as f32 / info.width.max(1e-3);
             let to_user = |x: f32, y: f32| {
