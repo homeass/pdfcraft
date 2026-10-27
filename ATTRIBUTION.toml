@@ -3365,7 +3365,7 @@ licence = "CC-BY-SA-4.0"
 licence_url = "https://creativecommons.org/licenses/by-sa/4.0/legalcode.txt"
 licence_sha256 = "28a9529c7d0bb4dc51f4bf5c116a3d16ef247a052f7591466768ddf563fd1cf5"
 kind = "model"
-usage = "Scan & OCR: finds words on page images (cargo xtask models)"
+usage = "Scan & OCR: finds words on page images, Latin and Korean alike (cargo xtask models)"
 sha256 = "a917b23dbd9524b465df7e922641b3ff2981623df4ded5a0234004ef2fee7cfe"
 
 [[fetched]]

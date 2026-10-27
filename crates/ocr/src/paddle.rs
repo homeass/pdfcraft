@@ -1,7 +1,7 @@
 //! Korean text recognition on Linux through PaddleOCR's PP-OCRv5 Korean model, run by the
 //! `ocrs-cjk` engine (an ocrs fork whose public API mirrors upstream ocrs, typed against
 //! rten 0.24). The recognition model and its character dictionary are fetched by
-//! `cargo xtask models` (see ATTRIBUTION.toml); detection reuses the Latin `text-detection.rten`
+//! `cargo xtask models` (see ATTRIBUTION.toml); detection reuses the Latin `text-detection.onnx`
 //! the English path already ships: DB text detection is script-agnostic, and its generous line
 //! crops suit the recognition model better than PaddleOCR's own tighter detectors.
 //!
