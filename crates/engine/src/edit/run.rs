@@ -489,7 +489,20 @@ pub(crate) fn run_edit(doc: &mut pdfcraft_cos::Document, edit: &Edit, cx: &mut E
         Edit::RemoveStandardId { standard } => pdfcraft_organize::remove_standard_id(doc, *standard)?,
         Edit::SetDocumentScript { name, script } => pdfcraft_forms::set_document_script(doc, name, script.as_deref())?,
         Edit::AddOcrText { page, words } => {
-            pdfcraft_edit::stamp(doc, *page, "OCR", pdfcraft_ocr::text_layer(words))?;
+            // Words the standard fonts cannot hold (Korean among them) go to the invisible
+            // Type 3 layer of the Korean craft faces; everything else keeps the Helvetica one.
+            let (latin, other): (Vec<_>, Vec<_>) = words.iter().partition(|w| pdfcraft_ocr::fits_layer_font(&w.text));
+            if !latin.is_empty() {
+                let latin: Vec<pdfcraft_ocr::PlacedWord> = latin.into_iter().cloned().collect();
+                pdfcraft_edit::stamp(doc, *page, "OCR", pdfcraft_ocr::text_layer(&latin))?;
+            }
+            if !other.is_empty() {
+                let ko: Vec<pdfcraft_edit::OcrWord> = other
+                    .into_iter()
+                    .map(|w| pdfcraft_edit::OcrWord { text: w.text.clone(), origin: w.origin, across: w.across, up: w.up })
+                    .collect();
+                pdfcraft_edit::ocr_korean_layer(doc, *page, &ko)?;
+            }
         }
         Edit::EditPageImage { page, index, change } => {
             let img = pdfcraft_edit::page_images(doc, *page)?
