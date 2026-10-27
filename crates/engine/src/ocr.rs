@@ -109,7 +109,7 @@ pub struct OcrSettings {
     /// Resolution pages are rendered at for recognition (Acrobat's "Downsample to" choices).
     pub dpi: f32,
     /// Language code from [`LANGUAGES`]: "en" goes through the Latin ocrs models, "ko" through
-    /// the macOS Vision framework (which is also the only build that offers it).
+    /// the macOS Vision framework or, on Linux, the PaddleOCR models.
     pub language: String,
     /// Leave pages that already have text alone (Acrobat reports "page contains renderable
     /// text" and skips them). When `false`, such pages are read too (a picture on a page that
@@ -731,7 +731,6 @@ impl OcrJob {
                 Some(Err(skipped)) => out.push(skipped),
                 Some(Ok(shot)) => out.push(shot.read(recognizers)),
             }
-
         }
         progress(total, total);
         out
@@ -913,23 +912,23 @@ impl OcrShot {
         self.place(outcome.map_err(|e| e.to_string()))
     }
 
-    /// Recognise Korean with the macOS Vision framework (no models): the shot's own pixels,
+    /// Recognise Korean with Vision (macOS) or PaddleOCR (Linux): the shot's own pixels,
     /// placed like any other reading.
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     fn read_korean(&self) -> OcrPage {
         let Some(image) = &self.image else { return self.place(Err("the page's image was handed to another reader".into())) };
-        let lines = match pdfcraft_ocr::vision::recognize(image.rgba(), image.width(), image.height()) {
+        let lines = match pdfcraft_ocr::recognize_korean(image.rgba(), image.width(), image.height()) {
             Ok(l) => l,
             Err(e) => return self.place(Err(e.to_string())),
         };
         self.place(Ok(pdfcraft_ocr::StrategyOutcome { lines, secondary_ran: false, notes: Vec::new() }))
     }
 
-    /// Korean needs the macOS build (Vision framework): refuse loudly instead of silently
-    /// reading nothing.
-    #[cfg(not(target_os = "macos"))]
+    /// Korean needs the macOS or Linux build (Vision framework or PaddleOCR models): refuse
+    /// loudly instead of silently reading nothing.
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     fn read_korean(&self) -> OcrPage {
-        self.place(Err("Korean recognition needs the macOS build (Vision framework)".into()))
+        self.place(Err("Korean recognition needs the macOS or Linux build".into()))
     }
 
     /// Put the lines recognised in [`Self::image`] on the page (or skip the page with the
