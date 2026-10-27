@@ -8,7 +8,18 @@ rust-version.workspace = true
 repository.workspace = true
 
 [lints]
-workspace = true
+# Not `workspace = true`: the workspace `forbid`s `unsafe_code`, which a source attribute cannot
+# undo, and the macOS Vision backend (crates/ocr/src/vision.rs) needs one `unsafe` to read a
+# plain CGRect property (`boundingBox`) that objc2's generated binding marks `unsafe fn`
+# conservatively. This crate therefore `deny`s instead, so the single documented block in
+# vision.rs can `allow` it; every other use of `unsafe` in this crate stays a hard error.
+# Fork policy (homeass), 2026-10-27, for Korean Scan & OCR on macOS.
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+dbg_macro = "warn"
+todo = "warn"
 
 [dependencies]
 pdfcraft-fonts = { workspace = true }
@@ -18,3 +29,11 @@ thiserror.workspace = true
 
 [dev-dependencies]
 tempfile = "3.27"
+
+# Korean recognition on macOS uses the system Vision framework (safe objc2 bindings).
+[target.'cfg(target_os = "macos")'.dependencies]
+png = "0.18"
+objc2 = "0.6"
+objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFCGTypes"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSData", "NSDictionary", "NSError", "NSProcessInfo", "NSString"] }
+objc2-vision = { version = "0.3", default-features = false, features = ["std", "VNRequestHandler", "VNRecognizeTextRequest", "VNObservation", "VNRequest", "VNStatefulRequest", "VNTypes", "VNGeometry", "objc2-core-foundation"] }
