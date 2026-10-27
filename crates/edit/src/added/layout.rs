@@ -1,4 +1,4 @@
-use super::types::{AddedImage, AddedText, Family};
+use super::types::{AddedImage, AddedText};
 use super::{
     Content, CraftFont, Document, EditError, GlyphError, Level, ObjRef, Object, ParagraphBidiInfo, ShapedCluster, ShapedScript, craft_advance,
     craft_has, shape_arabic, shape_hebrew, shape_thai,

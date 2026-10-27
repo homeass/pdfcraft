@@ -1,6 +1,6 @@
 # Korean text support
 
-> **Last reviewed:** 2026-10-26 · **Last updated:** 2026-10-26 · **Change:** minor (the default Korean face moved to NanumGothic; Namu keeps the fallback role) · **Scope:** rendering, interface fallback and editing of Korean (Hangul) text
+> **Last reviewed:** 2026-10-27 · **Last updated:** 2026-10-27 · **Change:** minor (Scan & OCR reads Korean scans on macOS 13+ via the system Vision framework) · **Scope:** rendering, interface fallback, editing and OCR of Korean (Hangul) text
 
 What PdfCraft can and cannot do with Korean text today, which font carries it, and where each
 behaviour is pinned by a test. Korean interface *translation* (a `ko` catalog) is separate work:
@@ -44,6 +44,7 @@ degrades to a clear message, never to wrong glyphs.
 | Add content ▸ text | a new Added-text item draws Hangul with the same Kore faces and one-glyph-per-character Type 3 mechanism, in the style's own face (plain Helvetica → NanumGothic, Times → Sangjang R, Courier → Chulseokbu Light — no Korean mono face exists, bold → Chulseokbu Bold), while Latin and digits in the same box keep the item's standard font; widths come from the drawn glyphs, so wrap/align/justify work, and a build without the faces refuses with the Korean-font message | `crates/edit/src/tests.rs::added_korean_text_is_written_and_read_back`, `crates/edit/src/tests.rs::added_korean_text_draws_the_style_the_request_asks_for`, `crates/edit/src/tests.rs::added_korean_text_without_a_korean_face_says_so`, `crates/automation/tests/automation.rs::adding_korean_text_through_tools` |
 | Embedding | any full Unicode face including Hangul round-trips through `pdfcraft_fonts::embedding::embed` (identity `PCFullFont` program, UCS-2 CIDs, ToUnicode) | `crates/fonts/src/embedding.rs::korean_text_round_trips_through_the_korean_craft_face` |
 | CLI demo | `cargo run -p pdfcraft-fonts --example korean -- out.pdf` writes a Hangul page with the embedded face | manual; covered programmatically by the embedding test above |
+| Scan & OCR ▸ Recognize text | on **macOS 13+** the Document-language dropdown offers Korean; each page is read by the system Vision framework (on-device, no models, no network) and the Hangul words are laid back over the picture as invisible `PCKo…` Type 3 with the face's ToUnicode, so a Korean scan becomes searchable and selectable. Vision returns one line per text block (no per-word boxes), so each word's box splits the line in proportion to its characters | `crates/ocr/src/vision.rs` (unit: box mapping), `crates/engine/tests/it/ocr_korean.rs::korean_scan_becomes_searchable_through_vision`, `crates/edit/src/tests.rs::ocr_korean_layer_is_invisible_searchable_and_skips_undrawable_words` |
 
 Parity entries updated: `view.render-cid-fonts` and `edit.text-reflow` in
 `parity/acrobat-features.toml`.
@@ -57,11 +58,16 @@ Parity entries updated: `view.render-cid-fonts` and `edit.text-reflow` in
   yet); Korean's wiring there does not cover it.
 - **One design**: Namu is a display-weight text face with only Regular and Light; NanumGothic
   ships Regular only. Missing-bold requests resolve by NFSS to those faces; no synthetic bold is
-  drawn. Korean releases get no serif Korean face (none is licensed in craft-fonts).
+  drawn. The serif role is Sangjang R (Regular only); Chulseokbu carries Light and Bold.
 - **GB1 / CNS1** (Chinese orderings) still substitute nothing: the only openly licensed faces
   that would cover them are Source Han / Noto CJK, excluded by `AGENTS.md` §1.1.
 - **A Korean UI catalog** (`ko`) exists; the face-name rows (`나눔고딕`, `학교안심 나무`, …) are
   proper-noun lines, not translations.
+- **OCR is macOS-only and line-granular**: the ocrs models read the Latin alphabet, so Korean
+  recognition runs only on macOS 13+ through the system Vision framework. It gives no per-word
+  boxes (each recognized word's box splits its line by character count), and a word with a
+  character no Korean face holds is left out of the invisible layer rather than written as `?`.
+  A build without the Kore faces, or before macOS 13, offers English only.
 - NAMU's name table leaves the licence field empty (KERIS ships it that way), which is fine for
   craft-fonts embedding and `validate()`; the user-picks-a-font document-input validator
   (`validate_document_input`) requires the name table to declare its licence, so Namu chosen

@@ -6,11 +6,16 @@
 //! into page content: invisible text (rendering mode 3) over each word, so the page becomes a
 //! searchable image (Acrobat's "Searchable Image (Exact)": the image is left untouched).
 //!
-//! The models read the Latin alphabet (English and other languages written without accents).
+//! The ocrs models read the Latin alphabet (English and other languages written without
+//! accents). Korean is read on macOS 13 and later by the system Vision framework;
+//! [`language_available`] tells the UI which languages this machine can read.
 
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 use std::path::{Path, PathBuf};
+
+#[cfg(target_os = "macos")]
+mod vision;
 
 pub use pdfcraft_fonts::helvetica_width;
 
@@ -23,8 +28,24 @@ pub const RECOGNITION_MODEL: &str = "text-recognition.onnx";
 /// `€`, which made a scanned "€250" read as "E250".
 pub const ALPHABET: &str = " 0123456789!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~€ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 
-/// The languages the models read (ISO 639-1); all use the Latin alphabet without accents.
+/// The languages the models read (ISO 639-1). The ocrs models read the Latin alphabet; Korean
+/// is read on macOS 13 and later by the system Vision framework ([`language_available`]).
+#[cfg(target_os = "macos")]
+pub const LANGUAGES: &[(&str, &str)] = &[("en", "English"), ("ko", "Korean")];
+#[cfg(not(target_os = "macos"))]
 pub const LANGUAGES: &[(&str, &str)] = &[("en", "English")];
+
+/// Whether this build can recognize `language` now: English needs the models, Korean the macOS
+/// Vision framework. The Scan & OCR dialog lists only what is available here.
+pub fn language_available(language: &str) -> bool {
+    match language {
+        // Always offered: a build without the models says so when recognition starts.
+        "en" => true,
+        #[cfg(target_os = "macos")]
+        "ko" => vision::korean_available(),
+        _ => false,
+    }
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum OcrError {
@@ -38,6 +59,13 @@ pub enum OcrError {
     Recognize(String),
     #[error("the image is empty")]
     EmptyImage,
+}
+
+/// Whether `text` survives the WinAnsi Helvetica content [`text_layer`] writes: the standard
+/// fonts hold no Hangul, and `?` would stand in for it. Words that do not fit belong to
+/// `pdfcraft_edit::ocr_korean_layer`, which writes them with the Korean craft faces.
+pub fn fits_layer_font(text: &str) -> bool {
+    text.chars().all(pdfcraft_fonts::win_ansi_encodable)
 }
 
 /// Where the two model files are.
@@ -129,10 +157,20 @@ impl Ocr {
         Self::load(&Models::find().ok_or(OcrError::NoModels)?)
     }
 
-    /// Recognise the text in an RGBA (or RGB, or grey) image, `width` × `height` pixels.
-    pub fn recognize(&self, pixels: &[u8], width: u32, height: u32) -> Result<Vec<Line>, OcrError> {
+    /// Recognise the text in an RGBA (or RGB, or grey) image, `width` × `height` pixels, for
+    /// `language` from [`LANGUAGES`]. Korean runs on the macOS Vision framework; every other
+    /// language (and everything on other platforms) goes through the Latin ocrs models.
+    pub fn recognize(&self, language: &str, pixels: &[u8], width: u32, height: u32) -> Result<Vec<Line>, OcrError> {
         if width == 0 || height == 0 || pixels.is_empty() {
             return Err(OcrError::EmptyImage);
+        }
+        if language == "ko" {
+            #[cfg(target_os = "macos")]
+            {
+                return vision::recognize(pixels, width, height);
+            }
+            #[cfg(not(target_os = "macos"))]
+            return Err(OcrError::Recognize("Korean recognition needs the macOS build".into()));
         }
         // ocrs wants 1 or 3 channels.
         let rgb: std::borrow::Cow<[u8]> = if pixels.len() == (width * height * 4) as usize {
@@ -436,7 +474,7 @@ mod tests {
         };
         let ocr = Ocr::load(&models).unwrap();
         let (w, h, px) = test_image::hello();
-        let lines = ocr.recognize(&px, w, h).unwrap();
+        let lines = ocr.recognize("en", &px, w, h).unwrap();
         let text: Vec<String> = lines.iter().map(Line::text).collect();
         assert!(text.iter().any(|t| t.contains("HELL") && t.contains("WOR")), "{text:?}");
         let word = lines.iter().flat_map(|l| &l.words).find(|w| w.text.contains("HELL")).unwrap();
