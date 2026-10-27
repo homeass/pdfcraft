@@ -108,7 +108,7 @@ pub struct OcrSettings {
     /// Resolution pages are rendered at for recognition (Acrobat's "Downsample to" choices).
     pub dpi: f32,
     /// Language code from [`LANGUAGES`]: "en" goes through the Latin ocrs models, "ko" through
-    /// the macOS Vision framework (which is also the only build that offers it).
+    /// the macOS Vision framework or, on Linux, the PaddleOCR models.
     pub language: String,
     /// Leave pages that already have text alone (Acrobat reports "page contains renderable
     /// text" and skips them). When `false`, such pages are read too (a picture on a page that
@@ -722,17 +722,23 @@ impl OcrJob {
                 out.push(skip(&e));
                 continue;
             }
-            // Korean goes through the macOS Vision framework (no models, no preprocess/region);
+            // Korean goes through Vision (macOS) or PaddleOCR (Linux): no models, no preprocess/region;
             // everything else uses the multi-engine path with preprocessing and region support.
             let (outcome, inverse, offset) = if self.settings.language == "ko" {
-                #[cfg(not(target_os = "macos"))]
+                #[cfg(not(any(target_os = "macos", target_os = "linux")))]
                 {
-                    out.push(skip("Korean recognition needs the macOS build (Vision framework)"));
+                    out.push(skip("Korean recognition needs the macOS or Linux build"));
                     continue;
                 }
-                #[cfg(target_os = "macos")]
+                #[cfg(any(target_os = "macos", target_os = "linux"))]
                 {
-                    let lines = match pdfcraft_ocr::vision::recognize(&shot.rgba, shot.width, shot.height) {
+                    let lines = match pdfcraft_ocr::recognize_korean(&shot.rgba, shot.width, shot.height) {
+                        Ok(l) => l,
+                        Err(e) => {
+                            out.push(skip(&e.to_string()));
+                            continue;
+                        }
+                    };
                         Ok(l) => l,
                         Err(e) => {
                             out.push(skip(&e.to_string()));
