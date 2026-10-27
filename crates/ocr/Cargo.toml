@@ -27,6 +27,18 @@ ocrs = { version = "0.13.1", default-features = false, features = ["rten"] }
 rten = { version = "0.26.0", default-features = false, features = ["rten_format"] }
 thiserror.workspace = true
 
+# Korean recognition on Linux runs PaddleOCR's PP-OCRv5 Korean model through ocrs-cjk, whose
+# public API is typed against rten 0.24: the aliased dependency loads its ONNX files (and, with
+# `rten_format`, the shared Latin detection model). The English path keeps rten 0.26; Cargo
+# treats the two minors as separate crates, so both compile side by side and no type crosses.
+[target.'cfg(target_os = "linux")'.dependencies]
+ocrs-cjk = { version = "0.1.0", features = ["onnx"] }
+rten-cjk = { package = "rten", version = "0.24", default-features = false, features = ["onnx_format", "rten_format"] }
+
+# The Korean end-to-end test reads its rendered page fixture (tests/data/fixture-ko.png).
+[dev-dependencies]
+png = "0.18"
+
 # Korean recognition on macOS uses the system Vision framework (safe objc2 bindings).
 [target.'cfg(target_os = "macos")'.dependencies]
 png = "0.18"
