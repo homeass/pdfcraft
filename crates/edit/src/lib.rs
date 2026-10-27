@@ -55,8 +55,8 @@ pub use text::{
 };
 pub mod added;
 pub use added::{
-    Added, AddedImage, AddedText, Align, Content, Family, MarkerScan, add_content, delete_content, first_undrawable, isolate_content, list_added,
-    scan_markers, update_content,
+    Added, AddedImage, AddedText, Align, Content, Family, MarkerScan, OcrWord, add_content, delete_content, first_undrawable, isolate_content,
+    list_added, ocr_korean_layer, scan_markers, update_content,
 };
 
 mod apply;
