@@ -1,6 +1,6 @@
 # Korean text support
 
-> **Last reviewed:** 2026-10-27 · **Last updated:** 2026-10-27 · **Change:** minor (Scan & OCR reads Korean scans on macOS 13+ via the system Vision framework) · **Scope:** rendering, interface fallback, editing and OCR of Korean (Hangul) text
+> **Last reviewed:** 2026-10-29 · **Last updated:** 2026-10-29 · **Change:** minor (Scan & OCR reads Korean scans on Linux and Windows via the PaddleOCR PP-OCRv5 models, and on macOS 13+ via the system Vision framework) · **Scope:** rendering, interface fallback, editing and OCR of Korean (Hangul) text
 
 What PdfCraft can and cannot do with Korean text today, which font carries it, and where each
 behaviour is pinned by a test. Korean interface *translation* (a `ko` catalog) is separate work:
@@ -45,6 +45,7 @@ degrades to a clear message, never to wrong glyphs.
 | Embedding | any full Unicode face including Hangul round-trips through `pdfcraft_fonts::embedding::embed` (identity `PCFullFont` program, UCS-2 CIDs, ToUnicode) | `crates/fonts/src/embedding.rs::korean_text_round_trips_through_the_korean_craft_face` |
 | CLI demo | `cargo run -p pdfcraft-fonts --example korean -- out.pdf` writes a Hangul page with the embedded face | manual; covered programmatically by the embedding test above |
 | Scan & OCR ▸ Recognize text | on **macOS 13+** the Document-language dropdown offers Korean; each page is read by the system Vision framework (on-device, no models, no network) and the Hangul words are laid back over the picture as invisible `PCKo…` Type 3 with the face's ToUnicode, so a Korean scan becomes searchable and selectable. Vision returns one line per text block (no per-word boxes), so each word's box splits the line in proportion to its characters | `crates/ocr/src/vision.rs` (unit: box mapping), `crates/engine/tests/it/ocr_korean.rs::korean_scan_becomes_searchable_through_vision`, `crates/edit/src/tests.rs::ocr_korean_layer_is_invisible_searchable_and_skips_undrawable_words` |
+| Scan & OCR ▸ Recognize text (Linux & Windows) | Korean is offered when the PaddleOCR model files are installed; pages are read on-device by the PP-OCRv5 Korean recognition model through `ocrs-cjk` (pure Rust, fetched by `cargo xtask models`; detection reuses the Latin model) into the same invisible `PCKo…` Type 3 layer, this time with true per-word boxes. The models load on first use, so English-only users never pay for them | `crates/ocr/src/paddle.rs` (`reads_rendered_korean_text` end-to-end, `the_alphabet_is_the_dictionary_in_order_plus_the_space_class`, `a_wrong_alphabet_fails_loudly_and_the_right_one_reads`, `korean_is_unavailable_without_its_models`) |
 
 Parity entries updated: `view.render-cid-fonts` and `edit.text-reflow` in
 `parity/acrobat-features.toml`.
@@ -63,11 +64,13 @@ Parity entries updated: `view.render-cid-fonts` and `edit.text-reflow` in
   that would cover them are Source Han / Noto CJK, excluded by `AGENTS.md` §1.1.
 - **A Korean UI catalog** (`ko`) exists; the face-name rows (`나눔고딕`, `학교안심 나무`, …) are
   proper-noun lines, not translations.
-- **OCR is macOS-only and line-granular**: the ocrs models read the Latin alphabet, so Korean
-  recognition runs only on macOS 13+ through the system Vision framework. It gives no per-word
-  boxes (each recognized word's box splits its line by character count), and a word with a
-  character no Korean face holds is left out of the invisible layer rather than written as `?`.
-  A build without the Kore faces, or before macOS 13, offers English only.
+- **OCR depends on the engine**: the ocrs models read the Latin alphabet, so Korean recognition
+  runs on macOS 13+ through the system Vision framework, and on Linux and Windows through the
+  PaddleOCR PP-OCRv5 Korean model files fetched by `cargo xtask models`. Vision gives no per-word
+  boxes (each recognized word's box splits its line by character count); the Paddle path returns
+  word boxes like the Latin one. Either way, a word with a character no Korean face holds is left
+  out of the invisible layer rather than written as `?`. A build without the Kore faces, without
+  the model files, or on macOS before 13 offers English only.
 - NAMU's name table leaves the licence field empty (KERIS ships it that way), which is fine for
   craft-fonts embedding and `validate()`; the user-picks-a-font document-input validator
   (`validate_document_input`) requires the name table to declare its licence, so Namu chosen
@@ -77,6 +80,7 @@ Parity entries updated: `view.render-cid-fonts` and `edit.text-reflow` in
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-29 | minor | Korean Scan & OCR on Linux and Windows through the PaddleOCR PP-OCRv5 models (ocrs-cjk, on-device, model-file gate, lazy load); the Linux landing (kstyles10) predates this row — the docs said "macOS-only" until it |
 | 2026-10-26 | minor | The default Korean face moved to NanumGothic (picked by name, never manifest order); Namu keeps the fallback role; the web build embeds NanumGothic + Chulseokbu Light |
 | 2026-10-22 | major | Created. Korean wired into the interface chain, CID substitution, renderer, editor Type 3 replacement and embedding; KERIS byte-match recorded |
 | 2026-10-22 | minor | Korean wired into Add content ▸ text (the Added-text path): the style's own Kore faces, one glyph per character, standard-font Latin in the same box |
