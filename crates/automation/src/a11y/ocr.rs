@@ -88,7 +88,8 @@ impl Automation {
 
     /// Whether text recognition's models are installed, the directories searched for them (in
     /// order), and the languages it reads, each as a code, a name and whether this machine can
-    /// read it ("ko" needs the macOS Vision framework, or on Linux the PaddleOCR models).
+    /// read it ("ko" needs the macOS Vision framework, or on Linux and Windows the PaddleOCR
+    /// models).
     pub(crate) fn ocr_status(&self) -> Result<Value> {
         use pdfcraft_engine::ocr;
         let dirs: Vec<String> = ocr::Models::search_dirs().iter().map(|d| d.to_string_lossy().into_owned()).collect();
