@@ -1220,7 +1220,7 @@ pub fn tools() -> Vec<ToolDef> {
                     "doc": doc(),
                     "pages": pages("to recognise (default: all)"),
                     "dpi": { "type": "number", "minimum": 72, "maximum": 600, "description": "Resolution pages are read at (default 300; a scanned page is read at most at its own resolution)." },
-                    "language": { "type": "string", "enum": ["en", "ko"], "description": "Document language (default en). \"ko\" reads Korean with the macOS system recognizer, or on Linux with the PaddleOCR models (ocr_status reports whether this machine can)." },
+                    "language": { "type": "string", "enum": ["en", "ko"], "description": "Document language (default en). \"ko\" reads Korean with the macOS system recognizer, or on Linux and Windows with the PaddleOCR models (ocr_status reports whether this machine can)." },
                     "skip_text_pages": { "type": "boolean", "description": "Leave pages that already contain text alone (default true). false also reads pictures on such pages, without adding their text again." },
                 }),
                 &["doc"],
