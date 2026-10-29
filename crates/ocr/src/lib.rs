@@ -17,7 +17,7 @@
 //! The ocrs models read the Latin alphabet (English and other languages written without
 //! accents); Tesseract (the `tesseract` module, off the web build) reads whatever its installed
 //! language packs cover. Korean is read on macOS 13 and later by the system Vision framework,
-//! and on Linux by PaddleOCR's PP-OCRv5 Korean model;
+//! and on Linux and Windows by PaddleOCR's PP-OCRv5 Korean model;
 //! [`language_available`] tells the UI which languages this machine can read.
 
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
@@ -36,7 +36,7 @@ pub use ocrs::{
 };
 
 pub use pdfcraft_fonts::TextPlan;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "windows"))]
 mod paddle;
 #[cfg(target_os = "macos")]
 pub mod vision;
@@ -52,36 +52,36 @@ pub const MAX_SIDE: u32 = 10_000;
 pub const MAX_PIXELS: u32 = 64_000_000;
 
 /// The languages the models read (ISO 639-1). The ocrs models read the Latin alphabet; Korean
-/// is read on macOS 13 and later by the system Vision framework, and on Linux by the PaddleOCR
-/// models ([`language_available`]).
-#[cfg(any(target_os = "macos", target_os = "linux"))]
+/// is read on macOS 13 and later by the system Vision framework, and on Linux and Windows by
+/// the PaddleOCR models ([`language_available`]).
+#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
 pub const LANGUAGES: &[(&str, &str)] = &[("en", "English"), ("ko", "Korean")];
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
 pub use ocrs::LANGUAGES;
 
 /// Whether this build can recognize `language` now: English needs the models, Korean the macOS
-/// Vision framework or the Linux PaddleOCR models. The Scan & OCR dialog lists only what is
-/// available here.
+/// Vision framework or the Linux and Windows PaddleOCR models. The Scan & OCR dialog lists only
+/// what is available here.
 pub fn language_available(language: &str) -> bool {
     match language {
         // Always offered: a build without the models says so when recognition starts.
         "en" => true,
         #[cfg(target_os = "macos")]
         "ko" => vision::korean_available(),
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "windows"))]
         "ko" => paddle::PaddleModels::find().is_some(),
         _ => false,
     }
 }
 
-/// Recognize Korean text in RGBA page pixels: Vision on macOS, PaddleOCR on Linux.
-#[cfg(any(target_os = "macos", target_os = "linux"))]
+/// Recognize Korean text in RGBA page pixels: Vision on macOS, PaddleOCR on Linux and Windows.
+#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
 pub fn recognize_korean(rgba: &[u8], width: u32, height: u32) -> Result<Vec<Line>, OcrError> {
     #[cfg(target_os = "macos")]
     {
         return vision::recognize(rgba, width, height);
     }
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
     {
         use std::sync::{Arc, Mutex};
         static KOREAN: Mutex<Option<Arc<paddle::Korean>>> = Mutex::new(None);
