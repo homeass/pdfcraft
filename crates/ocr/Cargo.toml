@@ -27,11 +27,13 @@ ocrs = { version = "0.13.1", default-features = false, features = ["rten"] }
 rten = { version = "0.26.0", default-features = false, features = ["onnx_format", "rten_format"] }
 thiserror.workspace = true
 
-# Korean recognition on Linux runs PaddleOCR's PP-OCRv5 Korean model through ocrs-cjk, whose
-# public API is typed against rten 0.24: the aliased dependency loads its ONNX files (and, with
-# `rten_format`, the shared Latin detection model). The English path keeps rten 0.26; Cargo
+# Korean recognition on Linux and Windows runs PaddleOCR's PP-OCRv5 Korean model through ocrs-cjk,
+# whose public API is typed against rten 0.24: the aliased dependency loads its ONNX files (and,
+# with `rten_format`, the shared Latin detection model). The English path keeps rten 0.26; Cargo
 # treats the two minors as separate crates, so both compile side by side and no type crosses.
-[target.'cfg(target_os = "linux")'.dependencies]
+# The engine is pure Rust, so the same backend simply exists on both platforms; the ko language
+# still appears only when the model files are found (see `language_available`).
+[target.'cfg(any(target_os = "linux", target_os = "windows"))'.dependencies]
 ocrs-cjk = { version = "0.1.0", features = ["onnx"] }
 rten-cjk = { package = "rten", version = "0.24", default-features = false, features = ["onnx_format", "rten_format"] }
 
