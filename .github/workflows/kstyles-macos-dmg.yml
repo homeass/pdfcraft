@@ -1,0 +1,87 @@
+name: kstyles macOS DMG
+# Cross-compiled kstyles builds ship a tar.gz; the real drag-to-Applications DMG needs
+# hdiutil, so this job makes it on a GitHub-hosted arm64 macOS runner from the release's
+# own tar.gz asset. It also gives each labelled build a distinct CFBundleVersion
+# (0.15.0.kstylesNN) — upstream pins CFBundleVersion to the bare short version, so
+# consecutive kstyles builds otherwise look like the same app version to Finder and
+# LaunchServices, which makes upgrading odd (duplicate-replace prompts, stale registration).
+# Ad-hoc signed, not notarized: first launch needs right-click ▸ Open (see kmacos1-notes.md).
+#
+# Dispatch: gh workflow run kstyles-macos-dmg.yml --ref feat/16-windows -f tag=v0.15.0-kstyles12
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag whose macos-aarch64 tar.gz becomes the DMG (asset attaches to it)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  dmg:
+    runs-on: macos-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ inputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch the release's tar.gz
+        run: |
+          set -euo pipefail
+          gh release download "$TAG" -p '*-macos-aarch64.tar.gz' -D ./dl
+          ls -l ./dl
+
+      - name: Unpack and version the bundle
+        run: |
+          set -euo pipefail
+          tar xzf dl/*-macos-aarch64.tar.gz
+          APP=PdfCraft.app
+          test -x "$APP/Contents/MacOS/PdfCraft"
+          VFULL=$(plutil -extract PdfCraftVersion raw "$APP/Contents/Info.plist")
+          SHORT=${VFULL%%-*}; LABEL=${VFULL#*-}
+          BUNDLE_VERSION="$SHORT.$LABEL"
+          echo "FULL=$VFULL BUNDLE_VERSION=$BUNDLE_VERSION"
+          plutil -replace CFBundleVersion -string "$BUNDLE_VERSION" "$APP/Contents/Info.plist"
+          plutil -lint "$APP/Contents/Info.plist"
+          # Inside-out re-sign after touching Info.plist (ad-hoc, hardened flag, empty entitlements).
+          codesign --force --sign - --timestamp=none --options runtime \
+            --entitlements packaging/macos/entitlements.plist "$APP/Contents/MacOS/PdfCraft"
+          codesign --force --sign - --timestamp=none --options runtime \
+            --entitlements packaging/macos/entitlements.plist "$APP"
+          codesign --verify --strict --deep --verbose=2 "$APP"
+
+      - name: Build the DMG
+        run: |
+          set -euo pipefail
+          VFULL=$(plutil -extract PdfCraftVersion raw PdfCraft.app/Contents/Info.plist)
+          DMG="pdfcraft-$VFULL-macos-aarch64.dmg"
+          STAGE=stage; rm -rf "$STAGE"; mkdir -p "$STAGE"
+          ditto PdfCraft.app "$STAGE/PdfCraft.app"
+          ln -s /Applications "$STAGE/Applications"
+          mkdir -p "$STAGE/.background"
+          cp packaging/macos/dmg/background.tiff "$STAGE/.background/background.tiff"
+          cp packaging/macos/dmg/dmg-layout.DS_Store "$STAGE/.DS_Store"
+          for attempt in 1 2 3 4 5; do
+            if hdiutil create -srcfolder "$STAGE" -volname PdfCraft -fs HFS+ \
+                 -format UDZO -imagekey zlib-level=9 -ov "$DMG"; then break; fi
+            [ "$attempt" = 5 ] && exit 1; sleep $((attempt * 10))
+          done
+          codesign --force --sign - --timestamp=none "$DMG"
+          codesign --verify --strict --verbose=2 "$DMG"
+          MOUNT=mount; rm -rf "$MOUNT"; mkdir -p "$MOUNT"
+          hdiutil attach -nobrowse -readonly -mountpoint "$MOUNT" "$DMG" >/dev/null
+          codesign --verify --strict --deep --verbose=2 "$MOUNT/PdfCraft.app"
+          shasum -a 256 "$MOUNT/PdfCraft.app/Contents/MacOS/PdfCraft"
+          hdiutil detach "$MOUNT" >/dev/null
+          echo "DMG=$DMG" >> "$GITHUB_ENV"
+
+      - name: Attach to the release
+        run: |
+          set -euo pipefail
+          sha256sum "$DMG" || shasum -a 256 "$DMG"
+          ls -l "$DMG"
+          gh release upload "$TAG" "$DMG" --clobber
+          echo "::notice::attached $DMG to $TAG"
