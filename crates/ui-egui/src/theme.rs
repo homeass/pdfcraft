@@ -366,6 +366,18 @@ fn font_definitions_for_platform(prefer_hans: bool, platform: FontPolicyPlatform
     add(&mut fonts, "Inter-Medium", include_bytes!("../../../assets/fonts/Inter-Medium.ttf"));
     add(&mut fonts, "Inter-SemiBold", include_bytes!("../../../assets/fonts/Inter-SemiBold.ttf"));
     add(&mut fonts, "JetBrainsMono", include_bytes!("../../../assets/fonts/JetBrainsMono-Regular.ttf"));
+    // Tinos stands in for Times in the paragraph editor, the font picker and the Header & Footer
+    // preview: it is metric-compatible with Times New Roman, so the preview's line breaks and
+    // widths match the standard-14 Times the engine commits to the PDF. Font files live in
+    // craft-fonts (AGENTS.md §1.4), so these bytes come from the build input; a build without it
+    // (or without these faces) previews Times in Inter, as before the serif existed.
+    let tinos = |style: &str| {
+        pdfcraft_fonts::CRAFT_FONTS.iter().find(|f| f.family == "Tinos" && f.style == style).map_or(pdfcraft_fonts::INTER_REGULAR, |f| f.bytes)
+    };
+    add(&mut fonts, "Tinos", tinos("Regular"));
+    add(&mut fonts, "Tinos-Bold", tinos("Bold"));
+    add(&mut fonts, "Tinos-Italic", tinos("Italic"));
+    add(&mut fonts, "Tinos-BoldItalic", tinos("BoldItalic"));
     fonts.families.entry(FontFamily::Proportional).or_default().insert(0, "Inter".to_owned());
     fonts.families.entry(FontFamily::Monospace).or_default().insert(0, "JetBrainsMono".to_owned());
     // Keep missing Latin/Cyrillic letters in the app's own faces (for example Bulgarian ѝ,
@@ -432,7 +444,14 @@ fn font_definitions_for_platform(prefer_hans: bool, platform: FontPolicyPlatform
             fonts.families.insert(fam, stack);
         }
     }
-    for (fam, primary) in [("medium", "Inter-Medium"), ("semibold", "Inter-SemiBold")] {
+    for (fam, primary) in [
+        ("medium", "Inter-Medium"),
+        ("semibold", "Inter-SemiBold"),
+        ("serif", "Tinos"),
+        ("serif-bold", "Tinos-Bold"),
+        ("serif-italic", "Tinos-Italic"),
+        ("serif-bold-italic", "Tinos-BoldItalic"),
+    ] {
         let mut stack = vec![primary.to_owned()];
         stack.extend(fallback.iter().cloned());
         fonts.families.insert(FontFamily::Name(fam.into()), stack);
