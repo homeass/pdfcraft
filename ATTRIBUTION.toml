@@ -280,7 +280,6 @@ licence_file = "LICENSE-MIT"
 kind = "translation"
 usage = "Romanian UI strings, compiled in by crates/ui-egui/src/i18n.rs"
 
-
 [[asset]]
 path = "crates/ui-egui/src/i18n/fi.tsv"
 title = "Finnish interface translation catalog"
@@ -3332,6 +3331,8 @@ kind = "font"
 usage = "Fill & Sign typed signatures and initials: the typed name's glyph outlines, drawn as filled paths (the font file itself is not embedded in PDFs)"
 sha256 = "21808625578fe8d8cd10cb684be546dca077b27cd03a53a2f1ec11dc743c924c"
 
+
+
 [[asset]]
 path = "packaging/macos/dmg/background.svg"
 title = "PdfCraft macOS DMG window background"
@@ -3342,7 +3343,6 @@ licence_file = "assets/app-icon/LICENSE.txt"
 kind = "image"
 usage = "Finder window of the macOS DMG; rendered to background.tiff by packaging/macos/dmg/generate.py"
 sha256 = "182663e4d1c4fabbb7ab2e1f0d4e991a8e0859b4a8dee6934d3e25d77ea020af"
-
 
 [[asset]]
 path = "packaging/macos/dmg/background.tiff"
