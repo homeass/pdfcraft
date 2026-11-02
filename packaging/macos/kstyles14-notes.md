@@ -86,3 +86,28 @@ files must be on `main` once (workflow files only; they check out `inputs.ref` t
 
 Both fail if Korean does not come back from the roundtrip; Windows still ships the portable zip
 when WiX/MSI fails, marking the MSI skipped in the run summary.
+
+## CI 결과 (2026-11-02): 세 플랫폼.green on the same tag
+
+`gh workflow run kstyles-linux-deb.yml` / `kstyles-windows-zip.yml` both dispatched from `main`
+with `-f tag=v0.17.0-kstyles14 -f ref=feat/17-kstyles`, and both are green. Native evidence:
+
+- Ubuntu 24.04 x86_64: `cargo test --release -p pdfcraft-ocr` → 18 passed (`paddle.rs`, which a macOS
+  build never compiles), deb + rpm + FHS tar + CLI tar built, `sudo dpkg -i` then
+  `pdfcraft --version` == `pdfcraft 0.17.0 (kstyles14)`, Korean roundtrip twice (built CLI and installed
+  CLI) → 32 Hangul characters re-extracted.
+- Windows Server x64: same 18 paddle tests, MSI via WiX 5 (unsigned: the fork has no signing secrets) +
+  portable zip; roundtrip from the extracted zip with `models\` beside `pdfcraft-cli.exe` → 16 words,
+  32 Hangul characters.
+- `packaging/craft-fonts-korean-merge.sh` output equals the hand-made merged directory byte for byte
+  (checked on macOS), so all three platforms embed the same 22 faces.
+
+Two dispatch-workflow bugs were found and fixed on the way, both silent-until-CI: `$GITHUB_ENV` cannot
+carry a bare bin directory (must be `$GITHUB_PATH`), and `pdfcraft-*-linux-x86_64.tar.gz` also matches the
+CLI tarball, so the "exactly one FHS tar.gz" assertion failed at the upload step. Note that a re-run of a
+workflow_dispatch job uses the YAML from the *original* commit — fix the file on the default branch and
+dispatch a fresh run, `gh run rerun` will not pick the change up.
+
+Known consequences of building Linux on ubuntu-24.04: glibc 2.39 floor (despite nfpm's `libc6 >= 2.35`),
+AppImage intentionally not built (headless run unproven on the runner), and the release now carries 12
+assets — the Linux CLI tarball is new versus kstyles13.
