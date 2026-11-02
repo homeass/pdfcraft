@@ -79,7 +79,7 @@ jobs:
             "$RUNNER_TEMP/nfpm.tar.gz" | sha256sum -c -
           mkdir -p "$RUNNER_TEMP/bin"
           tar -xzf "$RUNNER_TEMP/nfpm.tar.gz" -C "$RUNNER_TEMP/bin" nfpm
-          echo "$RUNNER_TEMP/bin" >> "$GITHUB_ENV"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
           "$RUNNER_TEMP/bin/nfpm" --version
 
       - name: Merged Korean craft-fonts input
