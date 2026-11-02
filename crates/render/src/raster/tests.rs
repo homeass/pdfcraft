@@ -10421,6 +10421,7 @@ fn non_embedded_chinese_and_korean_cid_fonts_draw_with_an_installed_face() {
         ("ABCDEF+FZFSK--GBK1-0", CidFamily::AdobeGB1, "GB1", "GBK-EUC-H", "D6D0CEC4", "CIDFontType2"),
     ];
     for (base_font, family, ordering, encoding, code, subtype) in cases {
+        let is_korea1 = family == CidFamily::AdobeKorea1;
         let query = FontQuery::Fallback(FallbackFontQuery {
             post_script_name: Some(base_font.into()),
             character_collection: Some(CharacterCollection { family, supplement: 2 }),
@@ -10458,9 +10459,16 @@ trailer << /Root 1 0 R >>
         let shown = ink(RenderConfig { system_fonts: true, ..RenderConfig::default() });
         assert!(shown > 300, "{base_font}: the text is drawn ({shown} dark pixels)");
         // Off by default: exports, printing and OCR render without an installed font, so
-        // nothing drawn with one can be saved (AGENTS.md §1.2, §1.4).
+        // nothing drawn with one can be saved (AGENTS.md §1.2, §1.4). Korea1 is the exception:
+        // its bundled craft face is tried before the installed ones (korean_fallback), so the
+        // text draws even with system_fonts off — as Adobe-Japan1 does. Without the Korean face
+        // in the build, Korea1 needs an installed face like every other case here.
         let saved = ink(RenderConfig::default());
-        assert!(saved < 50, "{base_font}: not drawn without system_fonts ({saved} dark pixels)");
+        if is_korea1 && !pdfcraft_fonts::document_korean_fonts_for_style(false, false).is_empty() {
+            assert!(saved > 300, "{base_font}: the bundled Korean face draws without system_fonts ({saved} dark pixels)");
+        } else {
+            assert!(saved < 50, "{base_font}: not drawn without system_fonts ({saved} dark pixels)");
+        }
         if encoding == "GBK-EUC-H" {
             #[cfg(target_os = "windows")]
             gbk_glyphs::assert_expected_glyphs(&pdf, base_font);
