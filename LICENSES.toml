@@ -13,10 +13,15 @@ licences = ["MIT"]
 destination = "LICENSE-MIT"
 sha256 = "cd7032ea33b71427f188e34ffb4aee9d6868a57fd196037c5c8b2be03a2a0352"
 
+# Re-audited 2026-11-12 (kstyles20 replay): the only change from upstream 0.21.0 is the port's
+# Tinos paragraph below the craft-fonts sentence — OFL-1.1, The Tinos Project Authors, licence file
+# fonts/tinos/OFL.txt in the craft-fonts checkout, no third-party licence text altered. Upstream's
+# NOTICE hash was a7620386409bc691c7e223917db186ec447362f655fd81a1196d9853dcac1330; the earlier
+# kstyles19 audit recorded 9f854f730719af962cd840529324d089e05e68a30bd245c50e33f96e009b4314.
 [[document]]
 source = "NOTICE"
 destination = "NOTICE"
-sha256 = "a7620386409bc691c7e223917db186ec447362f655fd81a1196d9853dcac1330"
+sha256 = "eda459dc3ee699b370cee5636d61622ae82eb565b3d96dc388c897ee7d60a7d4"
 
 [[document]]
 source = "vendor/edit-session/LICENSE-MIT"
