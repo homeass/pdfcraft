@@ -79,7 +79,7 @@ jobs:
             "$RUNNER_TEMP/nfpm.tar.gz" | sha256sum -c -
           mkdir -p "$RUNNER_TEMP/bin"
           tar -xzf "$RUNNER_TEMP/nfpm.tar.gz" -C "$RUNNER_TEMP/bin" nfpm
-          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_ENV"
           "$RUNNER_TEMP/bin/nfpm" --version
 
       - name: Merged Korean craft-fonts input
@@ -162,12 +162,10 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-          deb=(dist/release/pdfcraft-[0-9]*-linux-x86_64.deb)
-          # [0-9] not *: pdfcraft-cli-<ver>-linux-x86_64.tar.gz would otherwise match too, and the
-          # "exactly one FHS .tar.gz" assertion failed on the second hit.
-          tar=(dist/release/pdfcraft-[0-9]*-linux-x86_64.tar.gz)
+          deb=(dist/release/pdfcraft-*-linux-x86_64.deb)
+          tar=(dist/release/pdfcraft-*-linux-x86_64.tar.gz)
           cli=(dist/release/pdfcraft-cli-*-linux-x86_64.tar.gz)
-          rpm=(dist/release/pdfcraft-[0-9]*-linux-x86_64.rpm)
+          rpm=(dist/release/pdfcraft-*-linux-x86_64.rpm)
           [ "${#deb[@]}" -eq 1 ] || { echo "error: expected exactly one .deb" >&2; exit 1; }
           [ "${#tar[@]}" -eq 1 ] || { echo "error: expected exactly one FHS .tar.gz" >&2; exit 1; }
           [ "${#cli[@]}" -eq 1 ] || { echo "error: expected exactly one CLI .tar.gz" >&2; exit 1; }
