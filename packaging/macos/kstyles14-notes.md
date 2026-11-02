@@ -69,3 +69,20 @@ output: `hdiutil attach -nobrowse -readonly -mountpoint /tmp/… <dmg>`.
   `xattr -d com.apple.quarantine /Applications/PdfCraft.app` or right-click ▸ Open
 - Known gap: `crates/ocr/src/paddle.rs` (Linux/Windows OCR) is cfg-gated off on macOS, so this build
   neither type-checks nor tests it — the fork's Linux CI covers it.
+
+## Native Linux and Windows builds
+
+The merged font input is reproducible from pinned public refs:
+`packaging/craft-fonts-korean-merge.sh -o craft-fonts-korean`. The two native jobs build, verify
+(PaddleOCR tests plus a headless Korean roundtrip) and attach their artifacts to the tag:
+
+```
+gh workflow run kstyles-linux-deb.yml   --ref feat/17-kstyles -f tag=v0.17.0-kstyles14
+gh workflow run kstyles-windows-zip.yml --ref feat/17-kstyles -f tag=v0.17.0-kstyles14
+```
+
+GitHub registers `workflow_dispatch` only for workflows that exist on the default branch: the two
+files must be on `main` once (workflow files only; they check out `inputs.ref` themselves).
+
+Both fail if Korean does not come back from the roundtrip; Windows still ships the portable zip
+when WiX/MSI fails, marking the MSI skipped in the run summary.
