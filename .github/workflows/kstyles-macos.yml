@@ -1,0 +1,158 @@
+name: kstyles macOS build
+# Native macOS arm64 build of a labelled kstyles release, from the pinned Korean craft-fonts input to
+# the drag-to-Applications DMG, plus the Vision Korean OCR roundtrip that only a macOS host can run.
+# This replaces the hand-run recipe in packaging/macos/kstyles14-notes.md: the runner's workspace is on
+# the boot volume, so package.sh's in-image `hdiutil attach` gate passes here (it EPERMs when the
+# workspace sits on an external volume), and the whole chain is reproducible without a local Mac.
+#
+# Dispatch: gh workflow run kstyles-macos.yml --ref main -f tag=v0.18.0-kstyles15 -f ref=feat/18-kstyles
+#
+# Ad-hoc signed, not notarized (the fork has no Apple secrets): first launch on another Mac needs
+# right-click ▸ Open, or `xattr -d com.apple.quarantine /Applications/PdfCraft.app`.
+# Artifacts attach to $TAG with --clobber: the labelled DMG, the CLI zip, the app-only tar.gz that
+# kstyles-macos-dmg.yml consumes, and SHA256SUMS.txt.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag the artifacts attach to"
+        required: true
+        default: v0.18.0-kstyles15
+        type: string
+      ref:
+        description: "Branch or commit to build"
+        required: true
+        default: feat/18-kstyles
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: kstyles-macos-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    timeout-minutes: 150
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ inputs.tag }}
+      CRAFT_FONTS_REQUIRED: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Rust toolchain
+        run: |
+          set -euo pipefail
+          rustup update stable >/dev/null
+          rustup default stable
+          need="$(sed -n 's/^rust-version = "\([^"]*\)".*/\1/p' Cargo.toml | head -1)"
+          have="$(rustc --version | cut -d' ' -f2 | cut -d'-' -f1)"
+          echo "rustc $have, workspace requires >= $need"
+          [ "$(printf '%s\n%s\n' "$need" "$have" | sort -V | head -1)" = "$need" ] || {
+            echo "error: rustc $have is below the required $need" >&2; exit 1; }
+
+      - name: Merged Korean craft-fonts input
+        run: |
+          set -euo pipefail
+          bash packaging/craft-fonts-korean-merge.sh -o craft-fonts-korean
+          echo "CRAFT_FONTS_DIR=$GITHUB_WORKSPACE/craft-fonts-korean" >> "$GITHUB_ENV"
+
+      - name: Version and label
+        run: |
+          set -euo pipefail
+          # The label has to reach two places at once (packaging/env.sh does NOT fold it into VERSION):
+          # PDFCRAFT_BUILD_LABEL drives `--version`/About, PDFCRAFT_VERSION drives the artifact names and
+          # Info.plist's PdfCraftVersion — which make-dmg-local.sh reads to write CFBundleVersion
+          # 0.18.0.kstylesNN. Getting this wrong silently yields an unlabelled DMG name and a
+          # CFBundleVersion like 0.18.0.0.18.0. Read the short version from Cargo.toml, never hardcode it.
+          short="$(awk '/^\[workspace.package\]/{p=1;next} /^\[/{p=0} p && $1=="version"{gsub(/[" ]/,"",$3);print $3;exit}' Cargo.toml)"
+          label="${TAG#v}"; label="${label#*-}"
+          [ "$label" != "$TAG" ] || { echo "error: tag $TAG must look like v<version>-<label>" >&2; exit 1; }
+          {
+            echo "PDFCRAFT_VERSION=$short-$label"
+            echo "PDFCRAFT_BUILD_LABEL=$label"
+            echo "PDFCRAFT_EXPECTED_VERSION=pdfcraft $short ($label)"
+          } >> "$GITHUB_ENV"
+          echo "==> building $short labelled $label"
+
+      - name: Build the app, CLI zip and DMG
+        run: |
+          set -euo pipefail
+          packaging/macos/package.sh --arch aarch64
+          ls -l dist/release/
+
+      - name: Verify bundle, label and bundled Korean models
+        run: |
+          set -euo pipefail
+          codesign --verify --strict --deep --verbose=2 target/macos-package/PdfCraft.app
+          test "$(target/macos-package/bin/pdfcraft-cli --version | head -1)" = "$PDFCRAFT_EXPECTED_VERSION"
+          "$PWD/target/macos-package/PdfCraft.app/Contents/MacOS/PdfCraft" --version | head -1 | grep -Fxq "$PDFCRAFT_EXPECTED_VERSION"
+          m=target/macos-package/PdfCraft.app/Contents/Resources/models
+          test -s "$m/korean-recognition.onnx"; test -s "$m/korean-dict.txt"
+          test -s "$m/text-detection.onnx"; test -s "$m/text-recognition.onnx"
+          test -s "$m/ATTRIBUTION.txt"
+          echo "embedded craft faces: $(grep -c 'CraftFont {' "$(find target -name craft_fonts.rs | head -1)")"
+
+      - name: Korean Scan&OCR roundtrip through Vision
+        run: |
+          set -euo pipefail
+          # The macOS half of the native verification: the same fixture the Linux and Windows jobs use,
+          # read by the system recognizer and laid back as an invisible, searchable Type3 layer.
+          # Same script shape as kstyles-linux-deb.yml, so the three platforms assert the same thing.
+          work="$(mktemp -d)"
+          cli="$PWD/target/macos-package/bin/pdfcraft-cli"
+          python3 -c 'import json,sys; f,o=sys.argv[1:3]; print(json.dumps([{"tool":"doc_create","args":{"from":"images","paths":[f],"dpi":200}},{"tool":"ocr_recognize","args":{"doc":1,"language":"ko"}},{"tool":"doc_save","args":{"doc":1,"path":o}}]))' \
+            "$GITHUB_WORKSPACE/crates/ocr/tests/data/fixture-ko.png" "$work/scan_ko_ocr.pdf" > "$work/steps.json"
+          "$cli" run --script "$work/steps.json" --report > "$work/report.json"
+          if ! jq -e '.ok == true and .steps[1].status == "ok" and .steps[1].result[0].words >= 10' "$work/report.json" >/dev/null; then
+            cat "$work/report.json" >&2
+            echo "error: Vision returned too few Korean words" >&2
+            exit 1
+          fi
+          "$cli" text "$work/scan_ko_ocr.pdf" > "$work/text.txt"
+          python3 -c 'import sys; t=open(sys.argv[1],encoding="utf-8").read(); h=[c for c in t if "\uac00" <= c <= "\ud7a3"]; assert "한국어" in t, repr(t); assert len(h) >= 20, len(h); print("Korean roundtrip ok:", len(h), "Hangul characters")' "$work/text.txt"
+
+      - name: Labelled DMG through make-dmg-local.sh
+        run: |
+          set -euo pipefail
+          # package.sh already wrote a DMG, but its CFBundleVersion is the bare short version, so Finder
+          # and LaunchServices see consecutive kstyles builds as the same app. make-dmg-local.sh re-stages
+          # the bundle from the app-only tarball with CFBundleVersion <short>.<label>, re-signs inside-out
+          # and verifies the app inside the mounted image — that DMG is the one we ship.
+          # The script fetches the DMG chrome (background.tiff, .DS_Store layout) from a hardcoded raw
+          # URL; point it at this checkout instead, so the image is built from the same commit as the app
+          # and not from a branch that may one day be gone.
+          sed -i '' "s|^RAW=.*|RAW=file://$GITHUB_WORKSPACE/packaging/macos/dmg|" packaging/macos/make-dmg-local.sh
+          grep -q '^RAW=file://' packaging/macos/make-dmg-local.sh || { echo "error: chrome override failed" >&2; exit 1; }
+          app=PdfCraft.app
+          tar czf "dist/release/pdfcraft-$PDFCRAFT_VERSION-macos-aarch64-app.tar.gz" -C target/macos-package "$app"
+          ( cd dist/release && bash ../../packaging/macos/make-dmg-local.sh "pdfcraft-$PDFCRAFT_VERSION-macos-aarch64-app.tar.gz" )
+          ls -l dist/release/
+
+      - name: Checksums, summary and release assets
+        run: |
+          set -euo pipefail
+          dmg=(dist/release/pdfcraft-*-macos-aarch64.dmg)
+          zip=(dist/release/pdfcraft-cli-*-macos-aarch64.zip)
+          apptar=(dist/release/pdfcraft-*-macos-aarch64-app.tar.gz)
+          [ "${#dmg[@]}" -eq 1 ]     || { echo "error: expected exactly one DMG, got ${#dmg[@]}" >&2; exit 1; }
+          [ "${#zip[@]}" -eq 1 ]     || { echo "error: expected exactly one CLI zip" >&2; exit 1; }
+          [ "${#apptar[@]}" -eq 1 ]  || { echo "error: expected exactly one app tar.gz" >&2; exit 1; }
+          artifacts=("${dmg[@]}" "${zip[@]}" "${apptar[@]}")
+          ( cd dist/release && shasum -a 256 "$(basename "${artifacts[@]}")" ) > SHA256SUMS.txt
+          {
+            echo "| artifact | bytes | sha256 |"
+            echo "| --- | ---: | --- |"
+            for f in "${artifacts[@]}"; do
+              echo "| $(basename "$f") | $(stat -f%z "$f") | $(shasum -a 256 "$f" | cut -d' ' -f1) |"
+            done
+            echo
+            echo "- $PDFCRAFT_EXPECTED_VERSION · Vision roundtrip green · ad-hoc signed (no notarization)"
+          } >> "$GITHUB_STEP_SUMMARY"
+          gh release upload "$TAG" "${artifacts[@]}" SHA256SUMS.txt --clobber
+          echo "::notice::attached ${#artifacts[@]} macOS artifacts to $TAG"
