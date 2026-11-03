@@ -72,3 +72,5 @@ The DMG's `CFBundleVersion` is `0.18.0.kstyles15`, so Finder/LaunchServices trea
 version. Copy with `rm -rf /Applications/PdfCraft.app && ditto <mounted>/PdfCraft.app /Applications/` —
 a plain `ditto` **merges**, and last time leftover `Contents/Resources/models/*.rten` files from an older
 build survived and broke `codesign --verify --strict`.
+
+다음 업그레이드의 절차·함정 재사용 프롬프트는 `kstyles-next-upgrade.md`에 있다.
