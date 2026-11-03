@@ -580,7 +580,7 @@ impl PdfCraftApp {
                 } else if let Some(doc) = self.session.get(id)
                     && let Some(ctx) = ctx
                 {
-                    ed.fonts = crate::edit_text_ui::install_source_fonts(&ctx, doc, page);
+                    ed.fonts = crate::edit_text_ui::install_source_fonts(&ctx, doc, page, &ed.look);
                     self.views[index].line_editor = Some(ed);
                 }
             }
