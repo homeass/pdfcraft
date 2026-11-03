@@ -5,7 +5,10 @@ name: kstyles Linux deb
 # runs the PaddleOCR crate tests and a headless Korean roundtrip with the release CLI, then
 # installs the .deb and repeats the roundtrip against /usr/bin and /usr/share/pdfcraft/models.
 #
-# Dispatch: gh workflow run kstyles-linux-deb.yml --ref feat/17-kstyles -f tag=v0.17.0-kstyles14
+# Dispatch: gh workflow run kstyles-linux-deb.yml --ref feat/18-kstyles \
+#   -f tag=v0.18.0-kstyles15 -f version=0.18.0 -f label=kstyles15
+# `version` and `label` default to the release this branch ports; the label is what
+# PDFCRAFT_BUILD_LABEL compiles into `--version` and what the assertions below expect.
 #
 # Debian/Ubuntu only (nfpm also writes a best-effort .rpm). The AppImage is deliberately left
 # out: it needs appimagetool's FUSE/extract-and-run path and zsyncmake, which this recipe does
@@ -16,12 +19,22 @@ on:
       tag:
         description: "Release tag the artifacts attach to"
         required: true
-        default: v0.17.0-kstyles14
+        default: v0.18.0-kstyles15
         type: string
       ref:
         description: "Branch or commit to build"
         required: true
-        default: feat/17-kstyles
+        default: feat/18-kstyles
+        type: string
+      version:
+        description: "Release version the build reports (workspace [workspace.package] version)"
+        required: true
+        default: "0.18.0"
+        type: string
+      label:
+        description: "Build label, compiled into --version and appended to the package release"
+        required: true
+        default: kstyles15
         type: string
 
 permissions:
@@ -40,10 +53,12 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       TAG: ${{ inputs.tag }}
-      # env.sh does NOT fold the label into $VERSION: --version becomes `0.17.0 (kstyles14)`
-      # and package.sh's LABEL_SUFFIX puts -kstyles14 in every Linux file name. Do not also set
-      # PDFCRAFT_VERSION=0.17.0-kstyles14 here, or the label is appended twice.
-      PDFCRAFT_BUILD_LABEL: kstyles14
+      VERSION: ${{ inputs.version }}
+      LABEL: ${{ inputs.label }}
+      # env.sh does NOT fold the label into $VERSION: --version becomes `0.18.0 (kstyles15)`
+      # and package.sh's LABEL_SUFFIX puts -kstyles15 in every Linux file name. Do not also set
+      # PDFCRAFT_VERSION=<version>-<label> here, or the label is appended twice.
+      PDFCRAFT_BUILD_LABEL: ${{ inputs.label }}
       CRAFT_FONTS_REQUIRED: "1"
     steps:
       - uses: actions/checkout@v4
@@ -149,9 +164,9 @@ jobs:
           sudo dpkg -i "$deb"
           test -s /usr/share/pdfcraft/models/korean-recognition.onnx
           test -s /usr/share/pdfcraft/models/korean-dict.txt
-          test "$(pdfcraft --version)" = "pdfcraft 0.17.0 (kstyles14)"
-          if ! pdfcraft-cli --version | head -1 | grep -qx 'pdfcraft-cli 0.17.0 (kstyles14)'; then
-            echo "error: installed pdfcraft-cli does not report 0.17.0 (kstyles14)" >&2
+          test "$(pdfcraft --version)" = "pdfcraft $VERSION ($LABEL)"
+          if ! pdfcraft-cli --version | head -1 | grep -qxF "pdfcraft-cli $VERSION ($LABEL)"; then
+            echo "error: installed pdfcraft-cli does not report $VERSION ($LABEL)" >&2
             exit 1
           fi
           # No PDFCRAFT_MODELS: the installed CLI must find /usr/share/pdfcraft/models itself.
