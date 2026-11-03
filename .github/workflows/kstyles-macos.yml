@@ -76,7 +76,8 @@ jobs:
           {
             echo "PDFCRAFT_VERSION=$short-$label"
             echo "PDFCRAFT_BUILD_LABEL=$label"
-            echo "PDFCRAFT_EXPECTED_VERSION=pdfcraft $short ($label)"
+            echo "PDFCRAFT_EXPECTED_GUI=pdfcraft $short ($label)"
+            echo "PDFCRAFT_EXPECTED_CLI=pdfcraft-cli $short ($label)"
           } >> "$GITHUB_ENV"
           echo "==> building $short labelled $label"
 
@@ -90,13 +91,26 @@ jobs:
         run: |
           set -euo pipefail
           codesign --verify --strict --deep --verbose=2 target/macos-package/PdfCraft.app
-          test "$(target/macos-package/bin/pdfcraft-cli --version | head -1)" = "$PDFCRAFT_EXPECTED_VERSION"
-          "$PWD/target/macos-package/PdfCraft.app/Contents/MacOS/PdfCraft" --version | head -1 | grep -Fxq "$PDFCRAFT_EXPECTED_VERSION"
+          # Two different binaries, two different prefixes: build_info prints `pdfcraft 0.18.0 (label)`
+          # for the app and `pdfcraft-cli 0.18.0 (label)` for the CLI. Compare captured strings rather
+          # than piping --version into head/grep, which fails under pipefail when the writer gets SIGPIPE.
+          cli="$(target/macos-package/bin/pdfcraft-cli --version | head -1)"
+          [ "$cli" = "$PDFCRAFT_EXPECTED_CLI" ] || {
+            echo "error: CLI reports '$cli', expected '$PDFCRAFT_EXPECTED_CLI'" >&2; exit 1; }
+          gui="$(target/macos-package/PdfCraft.app/Contents/MacOS/PdfCraft --version | head -1)"
+          [ "$gui" = "$PDFCRAFT_EXPECTED_GUI" ] || {
+            echo "error: app reports '$gui', expected '$PDFCRAFT_EXPECTED_GUI'" >&2; exit 1; }
           m=target/macos-package/PdfCraft.app/Contents/Resources/models
           test -s "$m/korean-recognition.onnx"; test -s "$m/korean-dict.txt"
           test -s "$m/text-detection.onnx"; test -s "$m/text-recognition.onnx"
           test -s "$m/ATTRIBUTION.txt"
-          echo "embedded craft faces: $(grep -c 'CraftFont {' "$(find target -name craft_fonts.rs | head -1)")"
+          # Count the embedded faces without tripping pipefail: `find | head` would kill find with
+          # SIGPIPE, and grep exits 1 when it finds nothing.
+          faces_src="$(find target -name craft_fonts.rs -print -quit)"
+          faces=0
+          if [ -n "$faces_src" ]; then faces="$(grep -c 'CraftFont {' "$faces_src" || true)"; fi
+          [ "$faces" -ge 20 ] || { echo "error: only $faces craft faces embedded (expected ~22)" >&2; exit 1; }
+          echo "embedded craft faces: $faces"
 
       - name: Korean Scan&OCR roundtrip through Vision
         run: |
@@ -152,7 +166,7 @@ jobs:
               echo "| $(basename "$f") | $(stat -f%z "$f") | $(shasum -a 256 "$f" | cut -d' ' -f1) |"
             done
             echo
-            echo "- $PDFCRAFT_EXPECTED_VERSION · Vision roundtrip green · ad-hoc signed (no notarization)"
+            echo "- $PDFCRAFT_EXPECTED_GUI ($PDFCRAFT_EXPECTED_CLI) · Vision roundtrip green · ad-hoc signed (no notarization)"
           } >> "$GITHUB_STEP_SUMMARY"
           gh release upload "$TAG" "${artifacts[@]}" SHA256SUMS.txt --clobber
           echo "::notice::attached ${#artifacts[@]} macOS artifacts to $TAG"
