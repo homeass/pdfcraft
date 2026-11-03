@@ -421,28 +421,29 @@ fn font_definitions_for_platform(prefer_hans: bool, platform: FontPolicyPlatform
     // The faces the Korean writer itself selects (pdfcraft-fonts' head picks) become named
     // families keyed by their font-data name, so a picker's bracketed Hangul note can be drawn
     // in the very face it names instead of the generic script fallback (edit_text_ui::family_label_job).
-    {
-        let mut heads: Vec<&pdfcraft_fonts::CraftFont> = Vec::new();
-        if let Some(f) = pdfcraft_fonts::document_korean_font() {
+    let mut heads: Vec<&pdfcraft_fonts::CraftFont> = Vec::new();
+    let mut add_head = |face: Option<&'static pdfcraft_fonts::CraftFont>| {
+        if let Some(f) = face
+            && !heads.iter().any(|h| std::ptr::eq(*h, f))
+        {
             heads.push(f);
         }
-        for serif in [false, true] {
-            for bold in [false, true] {
-                if let Some(f) = pdfcraft_fonts::document_korean_fonts_for_style(serif, bold).into_iter().next() {
-                    heads.push(f);
-                }
-            }
+    };
+    add_head(pdfcraft_fonts::document_korean_font());
+    for serif in [false, true] {
+        for bold in [false, true] {
+            add_head(pdfcraft_fonts::document_korean_fonts_for_style(serif, bold).into_iter().next());
         }
-        for face in heads {
-            let name = face.name();
-            let fam = FontFamily::Name(name.clone().into());
-            if fonts.families.contains_key(&fam) {
-                continue;
-            }
-            let mut stack = vec![name];
-            stack.extend(fallback.iter().cloned());
-            fonts.families.insert(fam, stack);
+    }
+    for &face in &heads {
+        let name = face.name();
+        let fam = FontFamily::Name(name.clone().into());
+        if fonts.families.contains_key(&fam) {
+            continue;
         }
+        let mut stack = vec![name];
+        stack.extend(fallback.iter().cloned());
+        fonts.families.insert(fam, stack);
     }
     for (fam, primary) in [
         ("medium", "Inter-Medium"),
@@ -456,7 +457,53 @@ fn font_definitions_for_platform(prefer_hans: bool, platform: FontPolicyPlatform
         stack.extend(fallback.iter().cloned());
         fonts.families.insert(FontFamily::Name(fam.into()), stack);
     }
+    // The inline editor previews Hangul with the face the document writer would write, while
+    // Latin stays in the preview face it has always used (Inter, Tinos, JetBrains Mono): one
+    // named family per Latin preview face and Korean head. `edit_text_ui::layout::preview_family`
+    // asks for exactly these; the head itself stays registered above for the picker notes.
+    let latin_previews = [
+        FontFamily::Proportional,
+        FontFamily::Monospace,
+        FontFamily::Name("semibold".into()),
+        FontFamily::Name("serif".into()),
+        FontFamily::Name("serif-bold".into()),
+        FontFamily::Name("serif-italic".into()),
+        FontFamily::Name("serif-bold-italic".into()),
+    ];
+    for &head in &heads {
+        for latin in &latin_previews {
+            let Some(primary) = fonts.families.get(latin).and_then(|stack| stack.first()).cloned() else { continue };
+            let mut stack = vec![primary];
+            stack.push(head.name());
+            stack.extend(fallback.iter().cloned());
+            fonts.families.insert(korean_preview_family(latin, head), stack);
+        }
+    }
     fonts
+}
+
+/// The Korean face the document writer selects for a paragraph of `family` and `bold`: the same
+/// decision as the engine's `korean_face_list` (`crates/edit/src/text/fallback.rs`). Plain
+/// Helvetica keeps the default script face; Times, Courier and bold text take the style's own
+/// face, with the remaining faces behind them.
+pub(crate) fn korean_writer_face(family: pdfcraft_engine::FontFamily, bold: bool) -> Option<&'static pdfcraft_fonts::CraftFont> {
+    let serif = family == pdfcraft_engine::FontFamily::Times;
+    if family == pdfcraft_engine::FontFamily::Helvetica && !bold {
+        pdfcraft_fonts::document_korean_font()
+    } else {
+        pdfcraft_fonts::document_korean_fonts_for_style(serif, bold).into_iter().next()
+    }
+}
+
+/// The named family that lays `latin`'s text out in its usual preview face and draws characters
+/// that face lacks (Hangul) with `head`.
+pub(crate) fn korean_preview_family(latin: &FontFamily, head: &pdfcraft_fonts::CraftFont) -> FontFamily {
+    let latin = match latin {
+        FontFamily::Proportional => "sans".to_owned(),
+        FontFamily::Monospace => "mono".to_owned(),
+        FontFamily::Name(name) => name.to_string(),
+    };
+    FontFamily::Name(format!("preview-korean-{}-{latin}", head.name().replace(' ', "")).into())
 }
 
 pub fn regular(size: f32) -> FontId {
