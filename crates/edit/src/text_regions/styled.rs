@@ -22,7 +22,7 @@ struct FallbackGroup {
 
 struct FallbackBuilder {
     groups: Vec<FallbackGroup>,
-    names: std::collections::BTreeMap<(String, bool, char), usize>,
+    names: std::collections::BTreeMap<(String, bool, char, bool), usize>,
     glyphs: usize,
     per_font: usize,
     budget: usize,
@@ -274,7 +274,9 @@ impl CharacterPreparation<'_> {
                 } else if let Some(name) = resolver.encodable_font(source, &text, requested)? {
                     name
                 } else if needs_type3(&text) {
-                    fallback.prepare(source, ch, &text, chars.len())?
+                    // Keep the run's own Korean face when no font was requested for it.
+                    let pinned = requested.is_none().then(|| pdfcraft_fonts::document_korean_face_named(&source.base_font)).flatten();
+                    fallback.prepare(source, ch, &text, chars.len(), pinned)?
                 } else {
                     let name = resolver.substitute_font(source);
                     substituted = Some(source_family(&source.base_font).base_font(source.bold, source.italic).to_owned());
@@ -316,12 +318,21 @@ impl FallbackBuilder {
         }
     }
 
-    fn prepare(&mut self, source: &TextLine, ch: char, text: &str, position: usize) -> Result<String, EditError> {
-        let key = (source.base_font.clone(), source.bold, ch);
+    fn prepare(
+        &mut self,
+        source: &TextLine,
+        ch: char,
+        text: &str,
+        position: usize,
+        pinned_korean: Option<&'static pdfcraft_fonts::CraftFont>,
+    ) -> Result<String, EditError> {
+        // The pin is derived from `source.base_font`, so its presence is enough to keep a
+        // requested-font fallback apart from one that keeps the run's own Korean face.
+        let key = (source.base_font.clone(), source.bold, ch, pinned_korean.is_some());
         let group_index = if let Some(index) = self.names.get(&key) {
             *index
         } else {
-            let (faces, script) = type3_faces(text, source_family(&source.base_font), source.bold)?;
+            let (faces, script) = type3_faces(text, source_family(&source.base_font), source.bold, pinned_korean)?;
             let face = fallback_face(&faces, &[ch], |face, ch| japanese_glyph_from(face, ch).is_ok()).ok_or_else(|| no_fallback_font(text))?;
             let index = self.groups.iter().position(|group| std::ptr::eq(group.face, face)).unwrap_or_else(|| {
                 let index = self.groups.len();
