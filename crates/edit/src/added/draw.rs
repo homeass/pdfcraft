@@ -63,7 +63,7 @@ fn draw_shaped(doc: &mut Document, t: &AddedText, taken: &Dict, fonts: &mut Dict
             ShapedScript::Korean => korean_outline(&korean, id),
             script => shaped_glyph(script, id),
         },
-        korean.first().map(|f| f.family),
+        korean.first().copied(),
     )
 }
 
@@ -76,8 +76,8 @@ fn korean_outline(faces: &[&CraftFont], id: u32) -> Result<GlyphOutline, GlyphEr
 }
 
 /// [`draw_shaped`] for lines that are already laid out. `outline` is the source of glyph outlines
-/// for a script's face (the craft-fonts faces, or a stand-in in tests). `korean_family` is the
-/// family of the item's head Korean face, which names the fonts of an all-Korean chunk.
+/// for a script's face (the craft-fonts faces, or a stand-in in tests). `korean_face` is the
+/// item's head Korean face, which names the fonts of an all-Korean chunk.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn draw_laid_shaped(
     doc: &mut Document,
@@ -87,7 +87,7 @@ pub(super) fn draw_laid_shaped(
     fonts: &mut Dict,
     out: &mut Vec<u8>,
     outline: impl Fn(ShapedScript, u32) -> Result<GlyphOutline, GlyphError>,
-    korean_family: Option<&'static str>,
+    korean_face: Option<&'static CraftFont>,
 ) -> Result<(), EditError> {
     let r = text_rect(t);
     let latin = font_name(t.family.base_font(t.bold, t.italic));
@@ -123,7 +123,7 @@ pub(super) fn draw_laid_shaped(
     let mut taken_names: HashSet<Vec<u8>> = taken.iter().chain(fonts.iter()).map(|(name, _)| name.clone()).collect();
     let mut names = Vec::new();
     for chunk in keys.chunks(GLYPHS_PER_FONT) {
-        let font = type3_shaped(doc, chunk, &outlines, korean_family);
+        let font = type3_shaped(doc, chunk, &outlines, korean_face);
         // A name no font on the page has, so items never replace each other's fonts (object
         // numbers alone don't do: a full save renumbers objects but keeps resource names).
         // All-Korean chunks take the Korean script's `PCKo` prefix; the shaped scripts keep the
@@ -197,13 +197,13 @@ fn cluster_key(c: &ShapedCluster) -> ClusterKey<'_> {
 }
 
 /// A Type 3 font with `clusters` as codes 1…, each drawn from its script face's glyph `outlines`.
-/// `korean_family` is the item's head Korean face's family, which names an all-Korean chunk (the
-/// face is chosen per item, so [`ShapedScript::font`] can't know it).
+/// `korean_face` is the item's head Korean face, which names an all-Korean chunk (the face is
+/// chosen per item, so [`ShapedScript::font`] can't know it).
 fn type3_shaped(
     doc: &mut Document,
     clusters: &[&ShapedCluster],
     outlines: &HashMap<(ShapedScript, u32), GlyphOutline>,
-    korean_family: Option<&'static str>,
+    korean_face: Option<&'static CraftFont>,
 ) -> ObjRef {
     let mut charprocs = Dict::new();
     let mut differences = vec![Object::Int(1)];
@@ -254,23 +254,32 @@ fn type3_shaped(
     cmap.push_str("endcmap\nCMapName currentdict /CMap defineresource pop\nend\nend\n");
     let cmap = doc.add(Object::Stream(Stream::flate(Dict::new(), cmap.as_bytes())));
     // The face's family when every glyph comes from one script; without the face, the script's
-    // name (as Arabic items were always named).
-    let family = match clusters.first().map(|c| c.script).filter(|s| clusters.iter().all(|c| c.script == *s)) {
-        Some(ShapedScript::Korean) => korean_family.unwrap_or("Korean"),
-        Some(script) => script.font().map_or(
-            match script {
-                ShapedScript::Arabic => "Arabic",
-                ShapedScript::Hebrew => "Hebrew",
-                ShapedScript::Thai => "Thai",
-                ShapedScript::Korean => "Korean",
-            },
-            |f| f.family,
-        ),
-        None => "PdfCraft Shaped Text",
+    // name (as Arabic items were always named). A Korean chunk is named after the whole face —
+    // `Family-Style`, the same form the replacement path writes — so that a later retype without
+    // a font request can read the face back with `document_korean_face_named`. The family alone
+    // cannot name it: Chulseokbu has Light and Bold, and only the style tells them apart.
+    let (family, font_name) = match clusters.first().map(|c| c.script).filter(|s| clusters.iter().all(|c| c.script == *s)) {
+        Some(ShapedScript::Korean) => match korean_face {
+            Some(face) => (face.family, format!("{}-{}", face.family, face.style)),
+            None => ("Korean", "Korean".to_owned()),
+        },
+        Some(script) => {
+            let family = script.font().map_or(
+                match script {
+                    ShapedScript::Arabic => "Arabic",
+                    ShapedScript::Hebrew => "Hebrew",
+                    ShapedScript::Thai => "Thai",
+                    ShapedScript::Korean => "Korean",
+                },
+                |f| f.family,
+            );
+            (family, family.to_owned())
+        }
+        None => ("PdfCraft Shaped Text", "PdfCraft Shaped Text".to_owned()),
     };
     let mut descriptor = Dict::new();
     descriptor.set(b"Type".to_vec(), Object::name("FontDescriptor"));
-    descriptor.set(b"FontName".to_vec(), Object::name(&family.replace(' ', "")));
+    descriptor.set(b"FontName".to_vec(), Object::name(&font_name.replace(' ', "")));
     descriptor.set(b"FontFamily".to_vec(), Object::String(PdfString::literal(family.as_bytes().to_vec())));
     descriptor.set(b"Flags".to_vec(), Object::Int(4));
     descriptor.set(b"ItalicAngle".to_vec(), Object::Int(0));
@@ -382,7 +391,7 @@ pub fn ocr_korean_layer(doc: &mut Document, page: usize, words: &[OcrWord]) -> R
     let mut new_fonts: Vec<(Vec<u8>, Object)> = Vec::new();
     let mut taken_names: HashSet<Vec<u8>> = taken.iter().map(|(name, _)| name.clone()).collect();
     for chunk in keys.chunks(GLYPHS_PER_FONT) {
-        let font = type3_shaped(doc, chunk, &outlines, faces.first().map(|f| f.family));
+        let font = type3_shaped(doc, chunk, &outlines, faces.first().copied());
         let mut name = format!("PCKo{}", font.num);
         let mut suffix = 0usize;
         while taken_names.contains(name.as_bytes()) {
