@@ -445,7 +445,7 @@ impl PdfCraftApp {
             {
                 ed.refresh_source(block, doc.text_lines(ed.page));
                 if let Some(ctx) = ctx {
-                    ed.fonts = crate::edit_text_ui::install_source_fonts(ctx, doc, ed.page);
+                    ed.fonts = crate::edit_text_ui::install_source_fonts(ctx, doc, ed.page, &ed.look);
                 }
             }
         }
