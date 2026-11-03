@@ -482,11 +482,10 @@ pub(crate) fn body(ui: &mut egui::Ui, app: &mut PdfCraftApp, t: &Tokens, kind: M
                     .width(100.0)
                     .show_ui(ui, |ui| {
                         for f in [FontFamily::Helvetica, FontFamily::Times, FontFamily::Courier] {
-                            ui.selectable_value(
-                                &mut d.hf.font,
-                                f,
-                                crate::edit_text_ui::family_label_job(f, false, egui::TextStyle::Body.resolve(ui.style())),
-                            );
+                            let body = egui::TextStyle::Body.resolve(ui.style());
+                            if crate::edit_text_ui::family_option(ui, d.hf.font == f, f, false, body).clicked() {
+                                d.hf.font = f;
+                            }
                         }
                     });
                 ui.label(tl!("Size"));
