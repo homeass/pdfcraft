@@ -234,6 +234,10 @@ fn choose_rewrite_path(
     style: &BlockStyle,
 ) -> Result<RewriteDispatch, EditError> {
     let registered_face = fonts.iter().any(|(name, _)| name.starts_with(b"PCFull"));
+    // A Type 3 source draws its glyphs itself: there is no sfnt program behind it to complete,
+    // whatever family name its descriptor carries.
+    let type3_source =
+        fonts.get(first.font.as_bytes()).and_then(|f| doc.resolve(f).as_dict().map(|d| d.name(b"Subtype") == Some(b"Type3"))).unwrap_or(false);
     // Hebrew is written back in drawing order by the single-style path. Styled regions do not
     // reorder right-to-left runs.
     let hebrew = text.unwrap_or(&block.text).chars().any(crate::bidi::is_hebrew);
@@ -255,7 +259,7 @@ fn choose_rewrite_path(
             // A generated fallback face (`PCKorean`, …) shares a craft face's name but is not a
             // source subset to complete: its outlines are already Type 3, and trying to embed the
             // craft program is both unnecessary and refused by its embedding permissions.
-            || (first.face.is_none() && !pdfcraft_fonts::embedding::matching_faces(&block.base_font).is_empty())
+            || (first.face.is_none() && !type3_source && !pdfcraft_fonts::embedding::matching_faces(&block.base_font).is_empty())
     });
     let has_multiple_runs = block.rows.iter().any(|row| row.len() > 1)
         || members.iter().any(|line| line.font != first.font || line.size != first.size || line.color != first.color);

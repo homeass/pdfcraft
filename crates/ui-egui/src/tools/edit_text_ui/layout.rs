@@ -86,6 +86,23 @@ pub(crate) fn family_label_job(family: pdfcraft_engine::FontFamily, bold: bool, 
     job
 }
 
+/// A font picker row showing [`family_label_job`]. The Hangul note is decoration, so the row's
+/// accessible name is the Latin family alone: assistive tech announces one option, not two names
+/// for it, and a test or a screen reader can address the row as "Times". The note still renders
+/// in the face it names.
+pub(crate) fn family_option(
+    ui: &mut egui::Ui,
+    selected: bool,
+    family: pdfcraft_engine::FontFamily,
+    bold: bool,
+    latin: egui::FontId,
+) -> egui::Response {
+    let response = ui.selectable_label(selected, family_label_job(family, bold, latin));
+    let enabled = ui.is_enabled();
+    response.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, enabled, selected, family.label()));
+    response
+}
+
 /// The bracketed note's display string and the head face's registered font-data name.
 fn korean_face_note(family: pdfcraft_engine::FontFamily, bold: bool) -> Option<(String, String)> {
     // The head face the writer picks: plain Helvetica keeps the script face; a serif, bold or

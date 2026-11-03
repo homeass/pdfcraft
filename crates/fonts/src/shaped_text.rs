@@ -9,7 +9,7 @@ use std::collections::{HashMap, HashSet};
 
 use pdfcraft_cos::{Dict, Document, Object, PdfString, Stream};
 
-use crate::{GlyphError, GlyphOutline, ShapedCluster, ShapedScript, literal, shape_thai, shaped_glyph};
+use crate::{CraftFont, GlyphError, GlyphOutline, ShapedCluster, ShapedScript, literal, shape_thai, shaped_glyph};
 
 /// Most glyphs in one Type 3 font: its codes are single bytes, 1–240. Text gets one such font per
 /// 240 distinct clusters it needs.
@@ -112,7 +112,7 @@ pub struct ShapedFonts {
 impl ShapedFonts {
     /// Build the fonts for `clusters` into `fonts`, under names starting `prefix` that neither
     /// `taken` (the page's fonts) nor `fonts` already has. `outline` gives a glyph's outline in its
-    /// script's face (the craft-fonts faces, or a stand-in in tests). `korean_family` names the
+    /// script's face (the craft-fonts faces, or a stand-in in tests). `korean_face` names the
     /// fonts of an all-Korean set (the face is chosen per item, so [`ShapedScript::font`] can't
     /// know it). `store` keeps each new
     /// object and returns what refers to it: `doc.add` as a reference, or the object itself for
@@ -126,7 +126,7 @@ impl ShapedFonts {
         taken: &Dict,
         fonts: &mut Dict,
         prefix: &str,
-        korean_family: Option<&str>,
+        korean_face: Option<&CraftFont>,
         store: &mut dyn FnMut(Object) -> Object,
     ) -> Result<Self, (GlyphError, &'a ShapedCluster)> {
         let mut keys: Vec<&ShapedCluster> = Vec::new();
@@ -150,7 +150,7 @@ impl ShapedFonts {
         let mut taken_names: HashSet<Vec<u8>> = taken.iter().chain(fonts.iter()).map(|(name, _)| name.clone()).collect();
         let mut names = Vec::new();
         for (i, chunk) in keys.chunks(GLYPHS_PER_FONT).enumerate() {
-            let font = type3_font(chunk, &outlines, korean_family, store);
+            let font = type3_font(chunk, &outlines, korean_face, store);
             let font = store(Object::Dict(font));
             let number = font.as_ref().map_or(i + 1, |r| r.num as usize);
             let mut name = format!("{prefix}{number}");
@@ -310,7 +310,7 @@ pub fn add_type3_font(
 fn type3_font(
     clusters: &[&ShapedCluster],
     outlines: &HashMap<(ShapedScript, u32), GlyphOutline>,
-    korean_family: Option<&str>,
+    korean_face: Option<&CraftFont>,
     store: &mut dyn FnMut(Object) -> Object,
 ) -> Dict {
     let mut charprocs = Dict::new();
@@ -362,23 +362,33 @@ fn type3_font(
     cmap.push_str("endcmap\nCMapName currentdict /CMap defineresource pop\nend\nend\n");
     let cmap = store(Object::Stream(Stream::flate(Dict::new(), cmap.as_bytes())));
     // The face's family when every glyph comes from one script; without the face, the script's
-    // name (as Arabic items were always named).
-    let family = match clusters.first().map(|c| c.script).filter(|s| clusters.iter().all(|c| c.script == *s)) {
-        Some(ShapedScript::Korean) => korean_family.unwrap_or("Korean"),
-        Some(script) => script.font().map_or(
-            match script {
-                ShapedScript::Arabic => "Arabic",
-                ShapedScript::Hebrew => "Hebrew",
-                ShapedScript::Thai => "Thai",
-                ShapedScript::Korean => "Korean",
-            },
-            |f| f.family,
-        ),
-        None => "PdfCraft Shaped Text",
+    // name (as Arabic items were always named). A Korean chunk is named after the whole face
+    // (`Family-Style`, the same form the replacement path writes) so that a later retype
+    // without a font request can read the face back with `document_korean_face_named`. The
+    // family alone cannot name it: Chulseokbu has Light and Bold, and only the style tells
+    // them apart.
+    let (family, font_name): (&str, String) = match clusters.first().map(|c| c.script).filter(|s| clusters.iter().all(|c| c.script == *s)) {
+        Some(ShapedScript::Korean) => match korean_face {
+            Some(face) => (face.family, format!("{}-{}", face.family, face.style)),
+            None => ("Korean", "Korean".to_owned()),
+        },
+        Some(script) => {
+            let family = script.font().map_or(
+                match script {
+                    ShapedScript::Arabic => "Arabic",
+                    ShapedScript::Hebrew => "Hebrew",
+                    ShapedScript::Thai => "Thai",
+                    ShapedScript::Korean => "Korean",
+                },
+                |f| f.family,
+            );
+            (family, family.to_owned())
+        }
+        None => ("PdfCraft Shaped Text", "PdfCraft Shaped Text".to_owned()),
     };
     let mut descriptor = Dict::new();
     descriptor.set(b"Type".to_vec(), Object::name("FontDescriptor"));
-    descriptor.set(b"FontName".to_vec(), Object::name(&family.replace(' ', "")));
+    descriptor.set(b"FontName".to_vec(), Object::name(&font_name.replace(' ', "")));
     descriptor.set(b"FontFamily".to_vec(), Object::String(PdfString::literal(family.as_bytes().to_vec())));
     descriptor.set(b"Flags".to_vec(), Object::Int(4));
     descriptor.set(b"ItalicAngle".to_vec(), Object::Int(0));

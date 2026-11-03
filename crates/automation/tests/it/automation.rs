@@ -4052,6 +4052,36 @@ fn adding_korean_text_through_tools() {
     assert_eq!(ok(&mut a, "text_find", json!({ "doc": re, "query": "회신 B12" }))["count"], 1);
 }
 
+/// Retyping Korean text that was *added* with `page_add_text` keeps the face the added-text
+/// writer chose (Times → Hakgyoansim Sangjang R), even though that paragraph is a generated
+/// Type 3 font rather than a source-page line. The added font's `/FontName` must name the whole
+/// face, or a retype that names no family falls back to the default Korean face.
+#[test]
+fn retyping_added_korean_text_keeps_its_face_through_tools() {
+    if pdfcraft_fonts::document_korean_font().is_none() {
+        eprintln!(
+            "skipping retyping_added_korean_text_keeps_its_face_through_tools: no Korean craft face (set CRAFT_FONTS_DIR to a checkout with one)"
+        );
+        return;
+    }
+    let dir = workdir("add-text-ko-retype");
+    std::fs::write(dir.join("blank.pdf"), win_ansi_paragraph_pdf("")).unwrap();
+    let mut a = auto(&dir);
+    let doc = ok(&mut a, "doc_open", json!({ "path": "blank.pdf" }))["doc"].as_u64().unwrap();
+    ok(&mut a, "page_add_text", json!({ "doc": doc, "page": 1, "text": "한글문단", "font": "times", "size": 44, "at": [60, 200] }));
+    ok(&mut a, "doc_save", json!({ "doc": doc, "path": "korean-added.pdf" }));
+    let reopened = ok(&mut a, "doc_open", json!({ "path": "korean-added.pdf" }))["doc"].as_u64().unwrap();
+    let before = ok(&mut a, "text_lines", json!({ "doc": reopened, "page": 1 }));
+    let face = before["lines"][0]["font"].as_str().unwrap_or_default().to_owned();
+    assert!(face.starts_with("HakgyoansimSangjangR"), "the added Times paragraph starts as {face}: {before}");
+
+    // No `font=` argument: the paragraph must keep the face it already has.
+    let edited = ok(&mut a, "text_edit", json!({ "doc": reopened, "page": 1, "line": 1, "text": "한글다시쓰기" }));
+    assert_eq!(edited["line"]["font"].as_str(), Some(face.as_str()), "retyping must keep {face}: {edited}");
+    let after = ok(&mut a, "text_lines", json!({ "doc": reopened, "page": 1 }));
+    assert_eq!(after["lines"][0]["font"].as_str(), Some(face.as_str()), "retyping must keep {face}: {after}");
+}
+
 /// One page whose content is one stream in three pieces (#155): a `TJ` array ends the middle
 /// piece and its operator starts the last one.
 fn split_streams_pdf() -> Vec<u8> {

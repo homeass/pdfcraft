@@ -1710,7 +1710,7 @@ fn added_korean_text_is_written_and_read_back() {
         assert!(mapped.contains(&format!("<{hex}>")), "{ch} in {mapped}");
     }
     let font_name = |f: &Dict| doc.resolve(f.get(b"FontDescriptor").unwrap()).as_dict().unwrap().name(b"FontName").map(<[u8]>::to_vec);
-    assert!(korean.iter().any(|f| font_name(f).as_deref() == Some(&b"NanumGothic"[..])));
+    assert!(korean.iter().any(|f| font_name(f).as_deref() == Some(&b"NanumGothic-Regular"[..])));
     // Reopening reports the Korean face, and the Latin segment rode the item's standard font.
     let lines = text::text_lines(&doc, 0).unwrap();
     assert!(lines.iter().any(|l| l.text == "회신 B12 부탁입니다" && l.base_font.contains("NanumGothic")), "{lines:?}");
@@ -1731,10 +1731,10 @@ fn added_korean_text_draws_the_style_the_request_asks_for() {
         return;
     }
     for (family, bold, expected) in [
-        (Family::Helvetica, false, "NanumGothic"),
-        (Family::Times, false, "HakgyoansimSangjangR"),
-        (Family::Courier, false, "HakgyoansimChulseokbuTTF"),
-        (Family::Helvetica, true, "HakgyoansimChulseokbuTTF"),
+        (Family::Helvetica, false, "NanumGothic-Regular"),
+        (Family::Times, false, "HakgyoansimSangjangR-Regular"),
+        (Family::Courier, false, "HakgyoansimChulseokbuTTF-Light"),
+        (Family::Helvetica, true, "HakgyoansimChulseokbuTTF-Bold"),
     ] {
         let mut doc = fixture();
         let t = AddedText { rect: [72.0, 600.0, 400.0, 700.0], text: "한글".into(), family, bold, ..AddedText::default() };
