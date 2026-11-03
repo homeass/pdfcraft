@@ -1,0 +1,261 @@
+name: kstyles Windows zip
+# Native x64 Windows build and verification of a labelled kstyles build (#17). Like the Linux
+# job: the macOS package never compiles crates/ocr/src/paddle.rs, so this is the first real
+# Windows test of Korean recognition. It builds the merged Korean craft-fonts input from the
+# same pinned public refs, runs the PaddleOCR crate tests, packages with the fork's own
+# package.ps1, then runs a headless Korean roundtrip from the extracted portable zip.
+#
+# Dispatch: gh workflow run kstyles-windows-zip.yml --ref feat/18-kstyles \
+#   -f tag=v0.18.0-kstyles15 -f version=0.18.0 -f label=kstyles15
+# `version` and `label` default to the release this branch ports; the label is what
+# PDFCRAFT_BUILD_LABEL compiles into --version and what PDFCRAFT_VERSION carries into file names.
+#
+# The MSI needs WiX v5. If it cannot be installed or built here, the job still ships the
+# portable zip and marks the MSI skipped in the summary (this fork has no signing secrets, so
+# both are unsigned/ad-hoc, as on the other kstyles builds).
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag the artifacts attach to"
+        required: true
+        default: v0.18.0-kstyles15
+        type: string
+      ref:
+        description: "Branch or commit to build"
+        required: true
+        default: feat/18-kstyles
+        type: string
+      version:
+        description: "Release version the build reports (workspace [workspace.package] version)"
+        required: true
+        default: "0.18.0"
+        type: string
+      label:
+        description: "Build label, compiled into --version and appended to the package version"
+        required: true
+        default: kstyles15
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: kstyles-windows-zip-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 180
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ inputs.tag }}
+      VERSION: ${{ inputs.version }}
+      LABEL: ${{ inputs.label }}
+      PDFCRAFT_BUILD_LABEL: ${{ inputs.label }}
+      PDFCRAFT_REQUIRE_WINRES: "1"
+      CRAFT_FONTS_REQUIRED: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Rust 1.95 or newer
+        shell: pwsh
+        run: |
+          rustup update stable
+          if ($LASTEXITCODE -ne 0) { throw 'rustup update stable failed' }
+          rustup default stable
+          if ($LASTEXITCODE -ne 0) { throw 'rustup default stable failed' }
+          rustc --version
+          $version = (rustc --version).Split(' ')[1]
+          if ([version]$version -lt [version]'1.95') {
+            throw "rustc $version is older than the workspace rust-version 1.95"
+          }
+
+      - name: Labelled package version
+        shell: pwsh
+        run: |
+          # package.ps1 names files from PDFCRAFT_VERSION, and unlike env.sh it has no label
+          # suffix: the label must be in this version for `-kstyles15` to appear in the MSI and
+          # zip names. --version still reads the workspace version plus PDFCRAFT_BUILD_LABEL.
+          # The dispatch `version` is what the package says; refuse it when the checked-out tree
+          # is not that release, so a wrong input cannot ship a mislabelled build.
+          $inPkg = $false
+          $version = $null
+          foreach ($line in Get-Content -LiteralPath Cargo.toml) {
+            if ($line -match '^\s*\[') { $inPkg = ($line.Trim() -eq '[workspace.package]'); continue }
+            if ($inPkg -and $line -match '^\s*version\s*=\s*"([^"]+)"') { $version = $Matches[1]; break }
+          }
+          if (-not $version) { throw 'could not read [workspace.package] version from Cargo.toml' }
+          if ($env:VERSION -ne $version) {
+            throw "dispatch version '$env:VERSION' does not match the workspace version '$version'"
+          }
+          "PDFCRAFT_VERSION=$($env:VERSION)-$($env:LABEL)" >> $env:GITHUB_ENV
+          Write-Output "PDFCRAFT_VERSION=$($env:VERSION)-$($env:LABEL)"
+
+      - name: Merged Korean craft-fonts input
+        shell: pwsh
+        run: |
+          # The merge script is bash (shared with Linux and macOS). Git Bash is on every Windows
+          # runner; normalise CRLF (a checkout setting must not break its shebang) and run it
+          # unchanged, so there is only one dialect of this logic.
+          $bash = (Get-Command bash.exe -ErrorAction SilentlyContinue).Source
+          if (-not $bash) { $bash = 'C:\Program Files\Git\bin\bash.exe' }
+          if (-not (Test-Path -LiteralPath $bash)) { throw 'bash.exe (Git Bash) not found' }
+          $merge = Join-Path $env:RUNNER_TEMP 'craft-fonts-korean-merge.sh'
+          $text = (Get-Content -LiteralPath packaging/craft-fonts-korean-merge.sh -Raw) -replace "`r`n", "`n"
+          [IO.File]::WriteAllText($merge, $text, [Text.UTF8Encoding]::new($false))
+          & $bash ($merge -replace '\\', '/') -o craft-fonts-korean
+          if ($LASTEXITCODE -ne 0) { throw "craft-fonts-korean-merge.sh exited $LASTEXITCODE" }
+          $dir = (Resolve-Path -LiteralPath craft-fonts-korean).Path
+          "CRAFT_FONTS_DIR=$dir" >> $env:GITHUB_ENV
+
+      - name: OCR models
+        shell: pwsh
+        run: |
+          cargo xtask models ocr-models
+          if ($LASTEXITCODE -ne 0) { throw 'cargo xtask models failed' }
+          $models = (Resolve-Path -LiteralPath ocr-models).Path
+          "PDFCRAFT_MODELS=$models" >> $env:GITHUB_ENV
+
+      - name: PaddleOCR tests (native Windows)
+        shell: pwsh
+        run: |
+          cargo test --release --locked -p pdfcraft-ocr -- --nocapture 2>&1 | Tee-Object -FilePath ocr-test.log
+          if ($LASTEXITCODE -ne 0) { throw "cargo test exited $LASTEXITCODE" }
+          # A skip would leave the Windows/Linux OCR path untested while the job still passes.
+          if (Select-String -LiteralPath ocr-test.log -Pattern 'skipped: Korean OCR models' -Quiet) {
+            throw 'the Korean OCR tests skipped; PDFCRAFT_MODELS did not reach them'
+          }
+
+      - name: WiX v5 (best effort)
+        shell: pwsh
+        run: |
+          $ok = $true
+          try {
+            dotnet tool install --global wix --version 5.0.2
+            if ($LASTEXITCODE -ne 0) { throw 'dotnet tool install wix failed' }
+            $wixDir = Join-Path $env:USERPROFILE '.dotnet\tools'
+            $env:PATH = "$wixDir;$env:PATH"
+            $wixDir | Out-File -Append -Encoding utf8 -FilePath $env:GITHUB_PATH
+            & (Join-Path $wixDir 'wix.exe') --version
+            if ($LASTEXITCODE -ne 0) { throw 'wix --version failed' }
+          } catch {
+            $ok = $false
+            Write-Warning "WiX v5 unavailable: $_"
+          }
+          "WIX_OK=$([int]$ok)" >> $env:GITHUB_ENV
+
+      - name: Package and verify
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = $env:PDFCRAFT_VERSION
+          $msi = "dist/release/pdfcraft-$version-windows-x64.msi"
+          $zip = "dist/release/pdfcraft-$version-windows-x64-portable.zip"
+          $packageOk = $true
+          try {
+            & ./packaging/windows/package.ps1 -Arch x64
+          } catch {
+            $packageOk = $false
+            Write-Warning "packaging/windows/package.ps1 failed: $_"
+          }
+
+          # package.ps1 builds the MSI before the portable zip, so a WiX failure skips the zip.
+          # Rebuild the portable layout from the staged tree; the binaries and models are done.
+          if (-not (Test-Path -LiteralPath $zip)) {
+            $stage = 'target\windows-package\x64'
+            if (-not (Test-Path -LiteralPath (Join-Path $stage 'pdfcraft-cli.exe'))) {
+              throw 'package.ps1 failed before the binaries were staged; nothing to ship'
+            }
+            $portable = "target\windows-package\pdfcraft-$version-windows-x64-portable"
+            Remove-Item -Recurse -Force $portable -ErrorAction SilentlyContinue
+            New-Item -ItemType Directory -Force -Path $portable | Out-Null
+            Copy-Item -Path (Join-Path $stage '*.exe'), (Join-Path $stage 'NOTICE'), (Join-Path $stage 'LICENSE-document.txt') -Destination $portable
+            Copy-Item -Recurse -Path (Join-Path $stage 'models') -Destination (Join-Path $portable 'models')
+            foreach ($f in 'README.md', 'LICENSE', 'LICENSE-MIT', 'LICENSE-APACHE') {
+              if (Test-Path -LiteralPath $f) { Copy-Item -LiteralPath $f -Destination $portable }
+            }
+            $licences = Join-Path $stage 'font-licences'
+            if (Test-Path -LiteralPath $licences) { Copy-Item -Path (Join-Path $licences 'OFL-*.txt') -Destination $portable }
+            Copy-Item -LiteralPath 'packaging\windows\portable.txt' -Destination $portable
+            Compress-Archive -Path $portable -DestinationPath $zip
+          }
+          if (-not (Test-Path -LiteralPath $zip)) { throw "no portable zip at $zip" }
+
+          $msiBuilt = $packageOk -and (Test-Path -LiteralPath $msi)
+          if ($msiBuilt) {
+            Write-Output "MSI=$msi"
+            "MSI_STATUS=built" >> $env:GITHUB_ENV
+          } else {
+            Write-Warning 'shipping the portable zip only; the MSI was not built or verified'
+            "MSI_STATUS=skipped" >> $env:GITHUB_ENV
+            if (Test-Path -LiteralPath $msi) { Remove-Item -Force $msi }
+          }
+
+          # Extract the portable zip and verify what a user actually gets, models\ included.
+          $work = Join-Path $env:RUNNER_TEMP 'kstyles-zip'
+          Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue
+          Expand-Archive -LiteralPath $zip -DestinationPath $work
+          $dir = (Get-ChildItem -LiteralPath $work -Directory | Select-Object -First 1).FullName
+          $cli = Join-Path $dir 'pdfcraft-cli.exe'
+          if (-not (Test-Path -LiteralPath (Join-Path $dir 'models\korean-recognition.onnx'))) {
+            throw 'the portable zip has no models\korean-recognition.onnx beside the CLI'
+          }
+          if (-not (Test-Path -LiteralPath (Join-Path $dir 'models\korean-dict.txt'))) {
+            throw 'the portable zip has no models\korean-dict.txt beside the CLI'
+          }
+          $cliVersion = (& $cli --version | Select-Object -First 1)
+          Write-Output $cliVersion
+          $expected = "pdfcraft-cli $($env:VERSION) ($($env:LABEL))"
+          if ($cliVersion -ne $expected) {
+            throw "the portable CLI reports '$cliVersion', expected '$expected'"
+          }
+
+          # One page from the Korean fixture with the CLI itself, OCR in Korean, save, then
+          # re-extract the text and require Hangul back.
+          [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+          $outPdf = Join-Path $env:RUNNER_TEMP 'kstyles-roundtrip.pdf'
+          $steps = @(
+            @{ tool = 'doc_create'; args = @{ from = 'images'; paths = @((Join-Path $env:GITHUB_WORKSPACE 'crates\ocr\tests\data\fixture-ko.png')); dpi = 200 } },
+            @{ tool = 'ocr_recognize'; args = @{ doc = 1; language = 'ko' } },
+            @{ tool = 'doc_save'; args = @{ doc = 1; path = $outPdf } }
+          ) | ConvertTo-Json -Depth 8
+          $stepsPath = Join-Path $env:RUNNER_TEMP 'kstyles-steps.json'
+          [IO.File]::WriteAllText($stepsPath, $steps, [Text.UTF8Encoding]::new($false))
+          $reportPath = Join-Path $env:RUNNER_TEMP 'kstyles-report.json'
+          & $cli run --script $stepsPath --report | Out-File -LiteralPath $reportPath -Encoding utf8
+          if ($LASTEXITCODE -ne 0) { throw "pdfcraft-cli run exited $LASTEXITCODE" }
+          $report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
+          if (-not $report.ok) { throw "the Korean OCR roundtrip failed: $($report.steps | ConvertTo-Json -Depth 8)" }
+          $words = [int]$report.steps[1].result[0].words
+          if ($words -lt 10) { throw "only $words Korean words were recognized" }
+          $text = (& $cli text $outPdf | Out-String)
+          $hangul = [regex]::Matches($text, '[\uAC00-\uD7A3]').Count
+          if ($hangul -lt 20) { throw "only $hangul Hangul characters were re-extracted: $text" }
+          Write-Output "Korean roundtrip ok: $words words, $hangul Hangul characters"
+
+      - name: Checksums, summary and release assets
+        shell: pwsh
+        run: |
+          $artifacts = @("dist/release/pdfcraft-$($env:PDFCRAFT_VERSION)-windows-x64-portable.zip")
+          if ($env:MSI_STATUS -eq 'built') { $artifacts += "dist/release/pdfcraft-$($env:PDFCRAFT_VERSION)-windows-x64.msi" }
+          foreach ($f in $artifacts) {
+            if (-not (Test-Path -LiteralPath $f)) { throw "missing artifact $f" }
+          }
+          "| artifact | bytes | sha256 |" | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+          "| --- | ---: | --- |" | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+          foreach ($f in $artifacts) {
+            $hash = (Get-FileHash -LiteralPath $f -Algorithm SHA256).Hash.ToLowerInvariant()
+            $bytes = (Get-Item -LiteralPath $f).Length
+            "| $(Split-Path -Leaf $f) | $bytes | $hash |" | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+          }
+          "- MSI: $($env:MSI_STATUS) (WiX OK: $($env:WIX_OK); unsigned)" | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+          $manifest = Join-Path $env:CRAFT_FONTS_DIR 'fonts\manifest.txt'
+          $faceCount = @(Get-Content -LiteralPath $manifest | Where-Object { $_.Trim() -and -not $_.Trim().StartsWith('#') }).Count
+          "- fonts: $faceCount faces" | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+          gh release upload $env:TAG @artifacts --clobber
+          if ($LASTEXITCODE -ne 0) { throw "gh release upload failed with exit $LASTEXITCODE" }
+          Write-Output "::notice::attached $($artifacts.Count) Windows artifacts to $($env:TAG)"
