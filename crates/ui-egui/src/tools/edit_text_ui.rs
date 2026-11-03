@@ -631,6 +631,7 @@ fn open_editor(cx: PageToolContext<'_>, lines: &[pdfcraft_engine::TextBlock], bo
     // page's right edge, a multi-line paragraph rewraps to its own width.
     let right = xf.rect.right().min(view.viewport_rect().right()) - 6.0;
     let max_width = if l.rows.len() == 1 { (right - b.left()).max(b.width()) } else { b.width() };
+    let look = look_of(l);
     view.line_editor = Some(LineEditor {
         selection: None,
         font_resource: None,
@@ -642,14 +643,14 @@ fn open_editor(cx: PageToolContext<'_>, lines: &[pdfcraft_engine::TextBlock], bo
         source_rect: l.rect.map(|v| v as f32),
         multiline: l.rows.len() > 1,
         source: Some((l.clone(), source_lines)),
-        fonts: install_source_fonts(ui.ctx(), doc, page),
+        fonts: install_source_fonts(ui.ctx(), doc, page, &look),
         overflow: false,
         max_width,
         size: (l.size as f32 * scale).clamp(8.0, 72.0),
         focus: true,
         had_focus: false,
-        look: look_of(l),
-        look0: look_of(l),
+        look: look.clone(),
+        look0: look,
         family_chosen: false,
         size_chosen: false,
         extras: Extras::default(),
@@ -1137,23 +1138,86 @@ C", &picked
 
     /// The editor's font matrix is pinned without a GPU: Courier is monospaced whatever the
     /// style, Times resolves to the four Tinos families, and Helvetica keeps the sans UI faces
-    /// (no Inter oblique exists, so its italic previews upright).
+    /// (no Inter oblique exists, so its italic previews upright). The latest Korean face follows
+    /// those Latin faces in the stack; a build without one keeps the old families exactly.
     #[test]
     fn the_editor_font_follows_family_weight_and_slant() {
+        use pdfcraft_engine::FontFamily as F;
+        let defs = crate::theme::font_definitions();
+        let first_data = |family: FontFamily| defs.families.get(&family).and_then(|stack| stack.first()).cloned();
         let f = |family: pdfcraft_engine::FontFamily, bold: bool, italic: bool| {
             editor_font(&pdfcraft_engine::AddedText { family, bold, italic, ..Default::default() }, 12.0).family
         };
+        // The Latin face that comes first is the assertion that must not change: Inter for sans,
+        // Tinos for serif, JetBrains Mono for Courier (with the weight and slant the style asks).
+        for (family, bold, italic, latin) in [
+            (F::Courier, false, false, "JetBrainsMono"),
+            (F::Courier, true, true, "JetBrainsMono"),
+            (F::Times, false, false, "Tinos"),
+            (F::Times, true, false, "Tinos-Bold"),
+            (F::Times, false, true, "Tinos-Italic"),
+            (F::Times, true, true, "Tinos-BoldItalic"),
+            (F::Helvetica, false, false, "Inter"),
+            (F::Helvetica, true, false, "Inter-SemiBold"),
+            (F::Helvetica, false, true, "Inter"),
+            (F::Helvetica, true, true, "Inter-SemiBold"),
+        ] {
+            assert_eq!(first_data(f(family, bold, italic)).as_deref(), Some(latin), "{family:?} bold={bold} italic={italic}");
+        }
+        if crate::theme::korean_writer_face(F::Helvetica, false).is_none() {
+            assert_eq!(f(F::Courier, false, false), FontFamily::Monospace);
+            assert_eq!(f(F::Courier, true, true), FontFamily::Monospace);
+            assert_eq!(f(F::Times, false, false), FontFamily::Name("serif".into()));
+            assert_eq!(f(F::Times, true, false), FontFamily::Name("serif-bold".into()));
+            assert_eq!(f(F::Times, false, true), FontFamily::Name("serif-italic".into()));
+            assert_eq!(f(F::Times, true, true), FontFamily::Name("serif-bold-italic".into()));
+            assert_eq!(f(F::Helvetica, false, false), FontFamily::Proportional);
+            assert_eq!(f(F::Helvetica, true, false), FontFamily::Name("semibold".into()));
+            assert_eq!(f(F::Helvetica, false, true), FontFamily::Proportional);
+            assert_eq!(f(F::Helvetica, true, true), FontFamily::Name("semibold".into()));
+        }
+    }
+
+    /// The live editor must draw typed Hangul with the face the writer saves, not whichever Kore
+    /// face the fallback stack lists first: plain Helvetica is NanumGothic, Times is Sangjang R,
+    /// Courier is Chulseokbu Light, and bold takes Chulseokbu Bold (Times bold keeps Sangjang).
+    /// A matching glyph in the face's own registered family proves which face won; the three
+    /// plain families must use three different faces.
+    #[test]
+    fn the_editor_preview_draws_hangul_with_the_written_korean_face() {
+        use egui::epaint::text::{Fonts, TextOptions};
         use pdfcraft_engine::FontFamily as F;
-        assert_eq!(f(F::Courier, false, false), FontFamily::Monospace);
-        assert_eq!(f(F::Courier, true, true), FontFamily::Monospace);
-        assert_eq!(f(F::Times, false, false), FontFamily::Name("serif".into()));
-        assert_eq!(f(F::Times, true, false), FontFamily::Name("serif-bold".into()));
-        assert_eq!(f(F::Times, false, true), FontFamily::Name("serif-italic".into()));
-        assert_eq!(f(F::Times, true, true), FontFamily::Name("serif-bold-italic".into()));
-        assert_eq!(f(F::Helvetica, false, false), FontFamily::Proportional);
-        assert_eq!(f(F::Helvetica, true, false), FontFamily::Name("semibold".into()));
-        assert_eq!(f(F::Helvetica, false, true), FontFamily::Proportional);
-        assert_eq!(f(F::Helvetica, true, true), FontFamily::Name("semibold".into()));
+        if crate::theme::korean_writer_face(F::Helvetica, false).is_none() {
+            eprintln!("skipping the_editor_preview_draws_hangul_with_the_written_korean_face: no Kore face in this build");
+            return;
+        }
+        let defs = crate::theme::font_definitions();
+        let mut fonts = Fonts::new(TextOptions::default(), defs.clone());
+        // Atlas allocation of the glyph "한": the same face laid out again reuses its allocation,
+        // so equality names the face that won without reading private layout state.
+        let glyph = |fonts: &mut Fonts, font: FontId| {
+            let mut view = fonts.with_pixels_per_point(2.0);
+            let galley = view.layout_no_wrap("한".to_owned(), font, Color32::BLACK);
+            galley.rows.first().and_then(|row| row.glyphs.first()).map(|g| (g.uv_rect.min, g.uv_rect.max))
+        };
+        for family in [F::Helvetica, F::Times, F::Courier] {
+            for bold in [false, true] {
+                let head = crate::theme::korean_writer_face(family, bold).expect("a Korean face");
+                let preview = editor_font(&pdfcraft_engine::AddedText { family, bold, ..Default::default() }, 24.0);
+                // The named family must exist: an unregistered one would silently fall back.
+                assert!(defs.families.contains_key(&preview.family), "{family:?} bold={bold}: {:?} is not registered", preview.family);
+                let got = glyph(&mut fonts, preview);
+                let probe = FontId::new(24.0, FontFamily::Name(head.name().into()));
+                let want = glyph(&mut fonts, probe);
+                assert_eq!(got, want, "{family:?} bold={bold}: Hangul must draw with {} {}, not another Kore face", head.family, head.style);
+            }
+        }
+        // The three plain styles are genuinely three different faces (three glyph sets).
+        let uv = |fonts: &mut Fonts, family: F| glyph(fonts, editor_font(&pdfcraft_engine::AddedText { family, ..Default::default() }, 24.0));
+        let (sans, serif, mono) = (uv(&mut fonts, F::Helvetica), uv(&mut fonts, F::Times), uv(&mut fonts, F::Courier));
+        assert_ne!(sans, serif, "Helvetica and Times must not share a Korean face");
+        assert_ne!(sans, mono, "Courier must not draw the script face too");
+        assert_ne!(serif, mono, "the serif and sans Korean faces must differ");
     }
 
     #[test]
