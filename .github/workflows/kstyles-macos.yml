@@ -165,7 +165,15 @@ jobs:
           [ "${#zip[@]}" -eq 1 ]     || { echo "error: expected exactly one CLI zip" >&2; exit 1; }
           [ "${#apptar[@]}" -eq 1 ]  || { echo "error: expected exactly one app tar.gz" >&2; exit 1; }
           artifacts=("${dmg[@]}" "${zip[@]}" "${apptar[@]}")
-          ( cd dist/release && shasum -a 256 "$(basename "${artifacts[@]}")" ) > SHA256SUMS.txt
+          # One shasum call per file: `shasum "$(basename "${arr[@]}")"` collapses the array into a single
+          # newline-joined argument (BSD basename takes only string [suffix]), which then reads as one
+          # nonexistent file name.
+          : > SHA256SUMS.txt
+          for f in "${artifacts[@]}"; do
+            ( cd dist/release && shasum -a 256 "${f##*/}" ) >> SHA256SUMS.txt
+          done
+          [ "$(wc -l < SHA256SUMS.txt | tr -d ' ')" -eq "${#artifacts[@]}" ] || {
+            echo "error: SHA256SUMS.txt has $(wc -l < SHA256SUMS.txt | tr -d ' ') lines, expected ${#artifacts[@]}" >&2; exit 1; }
           {
             echo "| artifact | bytes | sha256 |"
             echo "| --- | ---: | --- |"
