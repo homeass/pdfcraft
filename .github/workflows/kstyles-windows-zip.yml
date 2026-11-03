@@ -5,7 +5,10 @@ name: kstyles Windows zip
 # same pinned public refs, runs the PaddleOCR crate tests, packages with the fork's own
 # package.ps1, then runs a headless Korean roundtrip from the extracted portable zip.
 #
-# Dispatch: gh workflow run kstyles-windows-zip.yml --ref feat/17-kstyles -f tag=v0.17.0-kstyles14
+# Dispatch: gh workflow run kstyles-windows-zip.yml --ref feat/18-kstyles \
+#   -f tag=v0.18.0-kstyles15 -f version=0.18.0 -f label=kstyles15
+# `version` and `label` default to the release this branch ports; the label is what
+# PDFCRAFT_BUILD_LABEL compiles into --version and what PDFCRAFT_VERSION carries into file names.
 #
 # The MSI needs WiX v5. If it cannot be installed or built here, the job still ships the
 # portable zip and marks the MSI skipped in the summary (this fork has no signing secrets, so
@@ -16,12 +19,22 @@ on:
       tag:
         description: "Release tag the artifacts attach to"
         required: true
-        default: v0.17.0-kstyles14
+        default: v0.18.0-kstyles15
         type: string
       ref:
         description: "Branch or commit to build"
         required: true
-        default: feat/17-kstyles
+        default: feat/18-kstyles
+        type: string
+      version:
+        description: "Release version the build reports (workspace [workspace.package] version)"
+        required: true
+        default: "0.18.0"
+        type: string
+      label:
+        description: "Build label, compiled into --version and appended to the package version"
+        required: true
+        default: kstyles15
         type: string
 
 permissions:
@@ -38,7 +51,9 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       TAG: ${{ inputs.tag }}
-      PDFCRAFT_BUILD_LABEL: kstyles14
+      VERSION: ${{ inputs.version }}
+      LABEL: ${{ inputs.label }}
+      PDFCRAFT_BUILD_LABEL: ${{ inputs.label }}
       PDFCRAFT_REQUIRE_WINRES: "1"
       CRAFT_FONTS_REQUIRED: "1"
     steps:
@@ -63,8 +78,10 @@ jobs:
         shell: pwsh
         run: |
           # package.ps1 names files from PDFCRAFT_VERSION, and unlike env.sh it has no label
-          # suffix: the label must be in this version for `-kstyles14` to appear in the MSI and
+          # suffix: the label must be in this version for `-kstyles15` to appear in the MSI and
           # zip names. --version still reads the workspace version plus PDFCRAFT_BUILD_LABEL.
+          # The dispatch `version` is what the package says; refuse it when the checked-out tree
+          # is not that release, so a wrong input cannot ship a mislabelled build.
           $inPkg = $false
           $version = $null
           foreach ($line in Get-Content -LiteralPath Cargo.toml) {
@@ -72,8 +89,11 @@ jobs:
             if ($inPkg -and $line -match '^\s*version\s*=\s*"([^"]+)"') { $version = $Matches[1]; break }
           }
           if (-not $version) { throw 'could not read [workspace.package] version from Cargo.toml' }
-          "PDFCRAFT_VERSION=$version-kstyles14" >> $env:GITHUB_ENV
-          Write-Output "PDFCRAFT_VERSION=$version-kstyles14"
+          if ($env:VERSION -ne $version) {
+            throw "dispatch version '$env:VERSION' does not match the workspace version '$version'"
+          }
+          "PDFCRAFT_VERSION=$($env:VERSION)-$($env:LABEL)" >> $env:GITHUB_ENV
+          Write-Output "PDFCRAFT_VERSION=$($env:VERSION)-$($env:LABEL)"
 
       - name: Merged Korean craft-fonts input
         shell: pwsh
@@ -189,8 +209,9 @@ jobs:
           }
           $cliVersion = (& $cli --version | Select-Object -First 1)
           Write-Output $cliVersion
-          if ($cliVersion -ne 'pdfcraft-cli 0.17.0 (kstyles14)') {
-            throw "the portable CLI reports '$cliVersion', expected 'pdfcraft-cli 0.17.0 (kstyles14)'"
+          $expected = "pdfcraft-cli $($env:VERSION) ($($env:LABEL))"
+          if ($cliVersion -ne $expected) {
+            throw "the portable CLI reports '$cliVersion', expected '$expected'"
           }
 
           # One page from the Korean fixture with the CLI itself, OCR in Korean, save, then
