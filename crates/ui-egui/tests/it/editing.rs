@@ -4224,6 +4224,103 @@ fn editing_existing_text_in_place() {
     assert_eq!(texts_of(s, 0), ["Chapter One"], "the page shows it");
 }
 
+/// One page whose only paragraph is the Korean "한글문단", written by the added-text writer with
+/// the Times family, then stripped of its `/PCAdded` marker: what a reader opens is an ordinary
+/// page paragraph in the generated `PCKo` Type 3 face, and the paragraph editor is its editor.
+fn korean_page_in_the_added_face() -> Vec<u8> {
+    use pdfcraft_cos::{Document, Object, write_full};
+    let mut session = pdfcraft_engine::Session::new();
+    let id = session.open("korean.pdf", None, fixture(1).into(), None).unwrap();
+    session
+        .apply(
+            id,
+            pdfcraft_engine::Edit::AddText {
+                page: 0,
+                text: pdfcraft_engine::AddedText {
+                    rect: [20.0, 190.0, 180.0, 240.0],
+                    text: "한글문단".into(),
+                    family: pdfcraft_engine::FontFamily::Times,
+                    size: 20.0,
+                    ..Default::default()
+                },
+            },
+        )
+        .unwrap();
+    let mut doc = Document::open(session.save_bytes(id).unwrap()).unwrap();
+    let page = pdfcraft_model::pages(&doc)[0].clone();
+    let contents = page.dict.get(b"Contents").cloned().expect("the page has content");
+    let refs: Vec<pdfcraft_cos::ObjRef> = match &*doc.resolve(&contents) {
+        Object::Array(items) => items.iter().filter_map(Object::as_ref).collect(),
+        _ => contents.as_ref().into_iter().collect(),
+    };
+    for r in refs {
+        doc.update_dict(r, |d| {
+            d.remove(b"PCAdded");
+            d.remove(b"PCMark");
+        })
+        .unwrap();
+    }
+    write_full(&doc, &Default::default()).unwrap()
+}
+
+#[test]
+fn retyping_an_added_korean_paragraph_in_the_editor_keeps_its_face() {
+    if pdfcraft_fonts::document_korean_font().is_none() {
+        eprintln!("skipping retyping_an_added_korean_paragraph_in_the_editor_keeps_its_face: no Korean craft face");
+        return;
+    }
+    let bytes = korean_page_in_the_added_face();
+    let mut h = Harness::builder().with_size(egui::vec2(1400.0, 900.0)).build_eframe(move |_cc| {
+        let mut app = PdfCraftApp::new();
+        app.set_option("language", "en").unwrap();
+        app.open_bytes("korean.pdf", None, bytes).expect("opens");
+        app
+    });
+    h.run_steps(4);
+    let before = {
+        let s = h.state();
+        s.session.get(s.views[0].id).unwrap().text_lines(0).iter().find(|l| l.text == "한글문단").expect("the Korean paragraph").base_font.clone()
+    };
+    assert!(before.contains("HakgyoansimSangjangR"), "the Times paragraph starts as {before}");
+
+    assert!(h.state_mut().execute("edit.edit_text"));
+    h.run_steps(2);
+    let r = h.state().views[0].page_screen_rect(0).expect("on screen");
+    let rect = {
+        let s = h.state();
+        s.session.get(s.views[0].id).unwrap().text_blocks(0).into_iter().find(|b| b.text == "한글문단").expect("the Korean paragraph").rect
+    };
+    let at = egui::pos2(
+        r.left() + (rect[0] as f32 + rect[2] as f32) / 2.0 / 200.0 * r.width(),
+        r.top() + (300.0 - (rect[1] as f32 + rect[3] as f32) / 2.0) / 300.0 * r.height(),
+    );
+    click_at(&mut h, at);
+    let ed = h.state().views[0].line_editor.clone().expect("the Korean paragraph opens for typing");
+    assert_eq!(ed.text, "한글문단");
+    // Text only: the font picker is not touched, so the paragraph keeps the face it has.
+    h.state_mut().views[0].line_editor.as_mut().unwrap().text = "한글다시쓰기".into();
+    h.run_steps(1);
+    h.key_press_modifiers(Modifiers::COMMAND, Key::Enter);
+    h.run_steps(4);
+    assert!(h.state().views[0].line_editor.is_none(), "the editor applied: {:?}", h.state().toast);
+
+    let s = h.state();
+    let doc = s.session.get(s.views[0].id).unwrap();
+    let lines = doc.text_lines(0);
+    let after = lines
+        .iter()
+        .find(|l| l.text == "한글다시쓰기")
+        .unwrap_or_else(|| panic!("the retyped paragraph: {:?}", lines.iter().map(|l| (l.text.clone(), l.base_font.clone())).collect::<Vec<_>>()))
+        .base_font
+        .clone();
+    assert!(after.contains("HakgyoansimSangjangR"), "the editor kept {before} but wrote {after}");
+    let bytes = s.session.save_bytes(s.views[0].id).unwrap();
+    let mut reopened = pdfcraft_engine::Session::new();
+    let id = reopened.open("korean-edited.pdf", None, bytes, None).unwrap();
+    let saved = reopened.get(id).unwrap().text_lines(0).iter().find(|l| l.text == "한글다시쓰기").expect("the saved paragraph").base_font.clone();
+    assert!(saved.contains("HakgyoansimSangjangR"), "the saved face is {saved}, not {before}");
+}
+
 /// Under the Edit tab, opens the line "Page 1" (at (20, 150) on a 200 × 300 page, 24 pt) in the
 /// paragraph editor and retypes it as "Chapter One", leaving the editor open.
 fn edit_tab_with_an_open_paragraph(h: &mut Harness<'static, PdfCraftApp>) {
