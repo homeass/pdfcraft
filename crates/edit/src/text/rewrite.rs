@@ -90,7 +90,8 @@ pub(crate) fn replace_line_with_limit(doc: &mut Document, page: usize, line: usi
         None => {
             let fallback_shown = crate::bidi::to_visual(&text);
             if needs_type3(&text) {
-                let fallback = type3_font(doc, &mut fonts_res, &text, source_family(&target.base_font), target.bold, max_glyphs)?;
+                let pinned = pdfcraft_fonts::document_korean_face_named(&target.base_font);
+                let fallback = type3_font(doc, &mut fonts_res, &text, source_family(&target.base_font), target.bold, pinned, max_glyphs)?;
                 let runs = type3_encode(&fallback, &fallback_shown)
                     .ok_or_else(|| EditError::Invalid(format!("\"{text}\" can't be shown by the {} fallback", fallback.family)))?;
                 let size = font_size_before(&ops, first).unwrap_or(target.size);
@@ -251,7 +252,10 @@ fn choose_rewrite_path(
     let has_special_text = text.is_some_and(|draft| {
         draft.contains(row_break)
             || pdfcraft_fonts::source_shaping::required(draft)
-            || !pdfcraft_fonts::embedding::matching_faces(&block.base_font).is_empty()
+            // A generated fallback face (`PCKorean`, …) shares a craft face's name but is not a
+            // source subset to complete: its outlines are already Type 3, and trying to embed the
+            // craft program is both unnecessary and refused by its embedding permissions.
+            || (first.face.is_none() && !pdfcraft_fonts::embedding::matching_faces(&block.base_font).is_empty())
     });
     let has_multiple_runs = block.rows.iter().any(|row| row.len() > 1)
         || members.iter().any(|line| line.font != first.font || line.size != first.size || line.color != first.color);
@@ -883,6 +887,12 @@ pub(crate) fn rewrite_block_from(
     let reuse = source.reuse;
     // The chosen style also determines the real Japanese fallback outlines and advances.
     let (family, bold, italic) = style.family.unwrap_or((source_family(&b.base_font), b.bold, b.italic));
+    // No family and no weight requested: let the paragraph keep the Korean face it already has.
+    // Family names cannot round-trip their face (see `document_korean_face_named`).
+    let pinned_korean = match (style.family, style.bold) {
+        (None, None) => pdfcraft_fonts::document_korean_face_named(&b.base_font),
+        _ => None,
+    };
     let bold = style.bold.unwrap_or(bold);
     let [dx, dy] = style.offset.unwrap_or([0.0, 0.0]);
     if !(dx.is_finite() && dy.is_finite()) {
@@ -910,7 +920,8 @@ pub(crate) fn rewrite_block_from(
     let right_edge = if anchored_right { (b.rect[2] - b.rect[0]).max(0.0) } else { width };
     let movement = drawn_movement(emit.ctm, dx, dy)?;
     let tm = emit_text_matrix(o, emit)?;
-    let type3 = if !reuse && needs_type3(&flat) { Some(type3_font(doc, &mut fonts_res, &flat, family, bold, max_glyphs)?) } else { None };
+    let type3 =
+        if !reuse && needs_type3(&flat) { Some(type3_font(doc, &mut fonts_res, &flat, family, bold, pinned_korean, max_glyphs)?) } else { None };
     let source_metrics = source.metrics.as_ref().filter(|_| reuse);
     let advance = Advance {
         source: source_metrics,

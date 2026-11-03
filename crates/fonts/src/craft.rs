@@ -131,6 +131,23 @@ pub fn document_korean_fonts_for_style(serif: bool, bold: bool) -> Vec<&'static 
     korean_faces_for_style(CRAFT_FONTS, serif, bold)
 }
 
+/// The Korean face a PDF font name names, when PdfCraft wrote it: a generated Type 3 font's
+/// `/FontName` is the face's family and style with spaces removed (`HakgyoansimSangjangR-Regular`,
+/// `HakgyoansimChulseokbuTTF-Bold`). A subset's six-letter tag and `+` prefix are ignored.
+/// `None` for any other name, including a face this build does not have.
+pub fn document_korean_face_named(base_font: &str) -> Option<&'static CraftFont> {
+    korean_face_named(CRAFT_FONTS, base_font)
+}
+
+fn korean_face_named<'a>(faces: &'a [CraftFont], base_font: &str) -> Option<&'a CraftFont> {
+    let name = base_font
+        .split_once('+')
+        .filter(|(tag, _)| tag.len() == 6 && tag.bytes().all(|b| b.is_ascii_uppercase()))
+        .map_or(base_font, |(_, name)| name);
+    let name = name.replace(' ', "").to_ascii_lowercase();
+    faces.iter().filter(|f| f.covers("Kore")).find(|f| format!("{}-{}", f.family, f.style).replace(' ', "").to_ascii_lowercase() == name)
+}
+
 fn korean_faces_for_style(faces: &[CraftFont], serif: bool, bold: bool) -> Vec<&CraftFont> {
     let kore = || faces.iter().filter(|f| f.covers("Kore"));
     let chulseokbu = |style: &str| kore().find(|f| f.family == "Hakgyoansim Chulseokbu TTF" && f.style == style);
@@ -547,5 +564,15 @@ mod tests {
         if CRAFT_FONTS.iter().any(|f| f.family == "NanumGothic") {
             assert_eq!(document_korean_font().map(|f| f.family), Some("NanumGothic"));
         }
+        // A generated Type 3 face's descriptor name (family and style, spaces removed) names
+        // exactly that face again, with or without a subset tag.
+        for face in ui_korean_fonts() {
+            let descriptor = format!("{}-{}", face.family, face.style).replace(' ', "");
+            assert!(document_korean_face_named(&descriptor).is_some_and(|f| std::ptr::eq(f, face)), "{descriptor}");
+            let tagged = format!("ABCDEF+{descriptor}");
+            assert!(document_korean_face_named(&tagged).is_some_and(|f| std::ptr::eq(f, face)), "{tagged}");
+        }
+        assert!(document_korean_face_named("Helvetica").is_none());
+        assert!(document_korean_face_named("HakgyoansimSangjangR").is_none(), "a family alone is not a face");
     }
 }

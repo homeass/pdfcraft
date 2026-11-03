@@ -440,13 +440,26 @@ pub(crate) fn korean_face_list(family: crate::added::Family, bold: bool) -> Resu
     Ok(korean.into_iter().chain(japanese).chain(latin).collect())
 }
 
-pub(crate) fn type3_faces(text: &str, family: crate::added::Family, bold: bool) -> Result<(Vec<&'static CraftFont>, Script), EditError> {
+pub(crate) fn type3_faces(
+    text: &str,
+    family: crate::added::Family,
+    bold: bool,
+    pinned_korean: Option<&'static CraftFont>,
+) -> Result<(Vec<&'static CraftFont>, Script), EditError> {
     let serif = family == crate::added::Family::Times;
     let japanese = pdfcraft_fonts::document_japanese_fonts_for_style(serif, bold);
     let latin = pdfcraft_fonts::document_latin_fonts(bold);
     if !text.chars().any(crate::bidi::is_hebrew) {
         if text.chars().any(is_korean) {
-            return Ok((korean_face_list(family, bold)?, Script::Korean));
+            let mut faces = korean_face_list(family, bold)?;
+            // An edit that names no family keeps the paragraph's own face, which `family`
+            // alone cannot express (bold Helvetica and bold Courier share Chulseokbu Bold,
+            // and Sangjang is only ever reached through a serif name).
+            if let Some(face) = pinned_korean {
+                faces.retain(|f| !std::ptr::eq(*f, face));
+                faces.insert(0, face);
+            }
+            return Ok((faces, Script::Korean));
         }
         return Ok((japanese.into_iter().chain(latin).collect(), Script::Japanese));
     }
@@ -460,7 +473,14 @@ pub(crate) fn type3_faces(text: &str, family: crate::added::Family, bold: bool) 
     // draws from it instead of failing on the Japanese faces, which lack Hangul coverage. With
     // Hangul and no Korean face, the refusal names the Korean face rather than reporting the
     // Hebrew face's missing glyph (same guidance the Korean-only branch gives).
-    let korean = if text.chars().any(is_korean) { Some(pdfcraft_fonts::document_korean_font().ok_or_else(no_korean_font)?) } else { None };
+    let korean = if text.chars().any(is_korean) {
+        Some(match pinned_korean {
+            Some(face) => face,
+            None => pdfcraft_fonts::document_korean_font().ok_or_else(no_korean_font)?,
+        })
+    } else {
+        None
+    };
     Ok((std::iter::once(hebrew).chain(korean).chain(japanese).chain(latin).collect(), Script::Hebrew))
 }
 
@@ -470,9 +490,10 @@ pub(super) fn type3_font(
     text: &str,
     family: crate::added::Family,
     bold: bool,
+    pinned_korean: Option<&'static CraftFont>,
     max_glyphs: usize,
 ) -> Result<Type3Fallback, EditError> {
-    let (faces, script) = type3_faces(text, family, bold)?;
+    let (faces, script) = type3_faces(text, family, bold, pinned_korean)?;
     let script_first = script != Script::Japanese;
     // Each unique character once, in order of first appearance.
     let mut chars = Vec::new();
