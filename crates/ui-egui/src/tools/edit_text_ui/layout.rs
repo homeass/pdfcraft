@@ -30,7 +30,21 @@ pub(super) fn look_of(b: &pdfcraft_engine::TextBlock) -> pdfcraft_engine::AddedT
 /// the standard-14 Times the engine commits), Courier in the monospaced UI face, and Helvetica and
 /// anything else in the proportional UI face. There is no Inter oblique, so italic sans text
 /// previews upright.
+///
+/// The style's Korean face follows those Latin faces in the stack, so Hangul is drawn in exactly
+/// the face the writer would save (NanumGothic, Sangjang R or Chulseokbu Light/Bold) instead of
+/// whichever Kore face the fallback happens to list first. A build without a Korean face keeps the
+/// plain Latin family.
 pub(crate) fn preview_family(family: pdfcraft_engine::FontFamily, bold: bool, italic: bool) -> FontFamily {
+    let latin = latin_preview_family(family, bold, italic);
+    match crate::theme::korean_writer_face(family, bold) {
+        Some(head) => crate::theme::korean_preview_family(&latin, head),
+        None => latin,
+    }
+}
+
+/// The Latin preview face alone, before the Korean head is appended.
+fn latin_preview_family(family: pdfcraft_engine::FontFamily, bold: bool, italic: bool) -> FontFamily {
     match (family, bold, italic) {
         (pdfcraft_engine::FontFamily::Courier, _, _) => FontFamily::Monospace,
         (pdfcraft_engine::FontFamily::Times, bold, italic) => FontFamily::Name(
@@ -74,16 +88,10 @@ pub(crate) fn family_label_job(family: pdfcraft_engine::FontFamily, bold: bool, 
 
 /// The bracketed note's display string and the head face's registered font-data name.
 fn korean_face_note(family: pdfcraft_engine::FontFamily, bold: bool) -> Option<(String, String)> {
-    let serif = family == pdfcraft_engine::FontFamily::Times;
-    let mono = family == pdfcraft_engine::FontFamily::Courier;
     // The head face the writer picks: plain Helvetica keeps the script face; a serif, bold or
     // Courier request draws the style's own face (no Korean craft mono face exists, so Courier
     // takes the sans stand-in — Light plain, Bold bold).
-    let head = if serif || bold || mono {
-        *pdfcraft_fonts::document_korean_fonts_for_style(serif, bold).first()?
-    } else {
-        pdfcraft_fonts::document_korean_font()?
-    };
+    let head = crate::theme::korean_writer_face(family, bold)?;
     let label = match head.family {
         "NanumGothic" => tl!("NanumGothic").to_string(),
         "Hakgyoansim Namu" => tl!("Hakgyoansim Namu").to_string(),
@@ -142,8 +150,15 @@ pub(crate) fn editor_fill(text: Color32) -> Color32 {
     if contrast(text, Color32::WHITE) >= contrast(text, DARK_EDITOR_FILL) { Color32::WHITE } else { DARK_EDITOR_FILL }
 }
 
-/// One TextEdit lays out all source runs; its caret and selection span the whole region.
-pub(crate) fn install_source_fonts(ctx: &egui::Context, doc: &pdfcraft_engine::Document, page: usize) -> BTreeMap<String, String> {
+/// One TextEdit lays out all source runs; its caret and selection span the whole region. The
+/// editor `look` selects which named preview family (and so which Korean head) a document face
+/// falls back to for characters its own program lacks.
+pub(crate) fn install_source_fonts(
+    ctx: &egui::Context,
+    doc: &pdfcraft_engine::Document,
+    page: usize,
+    look: &pdfcraft_engine::AddedText,
+) -> BTreeMap<String, String> {
     let programs = doc.text_editor_fonts(page);
     let mut definitions = ctx.fonts(|f| f.definitions().clone());
     // Only the current editor's document fonts live in the atlas. Never accumulate the
@@ -170,7 +185,7 @@ pub(crate) fn install_source_fonts(ctx: &egui::Context, doc: &pdfcraft_engine::D
                 })
                 .filter_map(|p| families.get(&p.resource).cloned()),
         );
-        if let Some(fallback) = definitions.families.get(&FontFamily::Proportional) {
+        if let Some(fallback) = definitions.families.get(&preview_family(look.family, look.bold, look.italic)) {
             stack.extend(fallback.iter().cloned());
         }
         definitions.families.insert(FontFamily::Name(name.clone().into()), stack);
