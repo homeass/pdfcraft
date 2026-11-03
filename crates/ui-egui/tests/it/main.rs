@@ -50,6 +50,7 @@ mod folders;
 mod fonts;
 mod forms;
 mod identity;
+mod ime_text;
 mod javascript;
 mod layer_actions;
 mod links;
