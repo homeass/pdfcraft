@@ -120,6 +120,13 @@ jobs:
           # Same script shape as kstyles-linux-deb.yml, so the three platforms assert the same thing.
           work="$(mktemp -d)"
           cli="$PWD/target/macos-package/bin/pdfcraft-cli"
+          # The standalone CLI binary — the one inside the CLI zip — has no models beside it, unlike the
+          # .app bundle (Contents/Resources/models) and the Linux package (/usr/share/pdfcraft/models),
+          # so point it at the models this job already staged. Otherwise ocr_recognize fails with
+          # "the text recognition models are not installed" before Vision is ever asked.
+          export PDFCRAFT_MODELS="$PWD/target/macos-package/PdfCraft.app/Contents/Resources/models"
+          test -s "$PDFCRAFT_MODELS/text-recognition.onnx"
+          test -s "$PDFCRAFT_MODELS/korean-recognition.onnx"
           python3 -c 'import json,sys; f,o=sys.argv[1:3]; print(json.dumps([{"tool":"doc_create","args":{"from":"images","paths":[f],"dpi":200}},{"tool":"ocr_recognize","args":{"doc":1,"language":"ko"}},{"tool":"doc_save","args":{"doc":1,"path":o}}]))' \
             "$GITHUB_WORKSPACE/crates/ocr/tests/data/fixture-ko.png" "$work/scan_ko_ocr.pdf" > "$work/steps.json"
           "$cli" run --script "$work/steps.json" --report > "$work/report.json"
