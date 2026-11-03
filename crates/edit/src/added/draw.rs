@@ -62,7 +62,7 @@ fn draw_shaped(doc: &mut Document, t: &AddedText, taken: &Dict, fonts: &mut Dict
             ShapedScript::Korean => korean_outline(&korean, id),
             script => shaped_glyph(script, id),
         },
-        korean.first().map(|f| f.family),
+        korean.first().copied(),
     )
 }
 
@@ -75,8 +75,8 @@ fn korean_outline(faces: &[&CraftFont], id: u32) -> Result<GlyphOutline, GlyphEr
 }
 
 /// [`draw_shaped`] for lines that are already laid out. `outline` is the source of glyph outlines
-/// for a script's face (the craft-fonts faces, or a stand-in in tests). `korean_family` is the
-/// family of the item's head Korean face, which names the fonts of an all-Korean chunk.
+/// for a script's face (the craft-fonts faces, or a stand-in in tests). `korean_face` is the
+/// item's head Korean face, which names the fonts of an all-Korean chunk.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn draw_laid_shaped(
     doc: &mut Document,
@@ -86,7 +86,7 @@ pub(super) fn draw_laid_shaped(
     fonts: &mut Dict,
     out: &mut Vec<u8>,
     outline: impl Fn(ShapedScript, u32) -> Result<GlyphOutline, GlyphError>,
-    korean_family: Option<&'static str>,
+    korean_face: Option<&'static CraftFont>,
 ) -> Result<(), EditError> {
     let r = text_rect(t);
     let latin = font_name(t.family.base_font(t.bold, t.italic));
@@ -98,7 +98,7 @@ pub(super) fn draw_laid_shaped(
     };
     let (ko, rest): (Vec<&ShapedCluster>, Vec<&ShapedCluster>) =
         shaped_text::clusters(laid.iter().map(|(_, _, _, pieces, _)| pieces.as_slice())).partition(|c| c.script == ShapedScript::Korean);
-    let ko_shaped = ShapedFonts::new(ko, &outline, taken, &mut *fonts, "PCKo", korean_family, &mut |o| {
+    let ko_shaped = ShapedFonts::new(ko, &outline, taken, &mut *fonts, "PCKo", korean_face, &mut |o| {
         Object::Ref(doc.add(o))
     })
     .map_err(|(e, c)| map_err(e, c))?;
@@ -143,6 +143,7 @@ pub(super) fn draw_laid_shaped(
     out.extend_from_slice(b"ET\n");
     Ok(())
 }
+
 
 /// A word the recognizer found, in PDF user space: the bottom-left corner of its box
 /// (`origin`) and the vectors along its bottom (`across`, in reading direction) and left
@@ -212,7 +213,7 @@ pub fn ocr_korean_layer(doc: &mut Document, page: usize, words: &[OcrWord]) -> R
         &taken,
         &mut ocr_fonts,
         "PCKo",
-        faces.first().map(|f| f.family),
+        faces.first().copied(),
         &mut |o| Object::Ref(doc.add(o)),
     )
     .map_err(|(e, c)| korean_error(e, &c.text))?;

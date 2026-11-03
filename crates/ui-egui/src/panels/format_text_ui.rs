@@ -168,13 +168,11 @@ pub(crate) fn panel(
                 for f in [FontFamily::Helvetica, FontFamily::Times, FontFamily::Courier] {
                     // Each option's label previews its own family, so Times and Helvetica no longer
                     // look identical in the list; the bracketed Hangul note still names the face
-                    // that writes it.
+                    // that writes it. The note is not the row's accessible name: that stays the
+                    // Latin family (see `family_option`).
                     let mut body = egui::TextStyle::Body.resolve(ui.style());
                     body.family = crate::edit_text_ui::preview_family(f, false, false);
-                    if ui
-                        .selectable_label(fonts.sources.is_none() && look.family == f, crate::edit_text_ui::family_label_job(f, look.bold, body))
-                        .clicked()
-                    {
+                    if crate::edit_text_ui::family_option(ui, fonts.sources.is_none() && look.family == f, f, look.bold, body).clicked() {
                         out.font = Some(FontChoice::Family(f));
                     }
                 }
