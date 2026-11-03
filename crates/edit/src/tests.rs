@@ -1876,6 +1876,70 @@ fn korean_bold_replacement_uses_the_chulseokbu_bold_face() {
     assert!(lines[0].base_font.contains("HakgyoansimChulseokbuTTF-Bold"), "{} should report the bold Korean face", lines[0].base_font);
 }
 
+/// Retyping a paragraph that already has a Korean face, without naming a font, keeps that face:
+/// the family→face mapping is not injective (bold Helvetica and bold Courier both write
+/// Chulseokbu Bold), so the face itself is carried through the rewrite instead of re-derived.
+#[test]
+fn korean_face_survives_a_retype_without_a_font_request() {
+    if pdfcraft_fonts::document_korean_font().is_none() {
+        eprintln!("skipping korean_face_survives_a_retype_without_a_font_request: no Kore face in this build");
+        return;
+    }
+    let mut nanum = styled_text_page("Helvetica");
+    text::replace_line(&mut nanum, 0, 0, "한국어 테스트").unwrap();
+    let mut sangjang = styled_text_page("Times-Roman");
+    text::replace_line(&mut sangjang, 0, 0, "한국어 명조").unwrap();
+    let mut chul_light = styled_text_page("Courier");
+    text::replace_line(&mut chul_light, 0, 0, "한국어 타자기").unwrap();
+    let mut chul_bold = text_page("BT /F2 12 Tf 72 700 Td (ab) Tj ET");
+    text::rewrite_block(
+        &mut chul_bold,
+        0,
+        0,
+        Some("한국어 고딕"),
+        &text::BlockStyle { family: Some((added::Family::Helvetica, true, false)), ..Default::default() },
+    )
+    .unwrap();
+    for (face, doc) in [
+        ("NanumGothic", nanum),
+        ("HakgyoansimSangjangR", sangjang),
+        ("HakgyoansimChulseokbuTTF-Light", chul_light),
+        ("HakgyoansimChulseokbuTTF-Bold", chul_bold),
+    ] {
+        let before = text::text_lines(&reopen(&doc), 0).unwrap()[0].base_font.clone();
+        assert!(before.contains(face), "{face} paragraph starts as {before}");
+        let mut doc = reopen(&doc);
+        let edit = text::rewrite_block(&mut doc, 0, 0, Some("다른 문장"), &text::BlockStyle::default()).unwrap();
+        let after = text::text_lines(&reopen(&doc), 0).unwrap()[0].base_font.clone();
+        assert!(after.contains(face), "retyping {face} without a font request wrote {after} ({edit:?})");
+    }
+}
+
+/// An explicit `font=` still replaces the Korean face: the pin only answers an edit that names
+/// no family, so picking Helvetica for a Sangjang paragraph writes the default face.
+#[test]
+fn an_explicit_font_overrides_the_korean_face() {
+    if pdfcraft_fonts::document_korean_font().is_none() {
+        eprintln!("skipping an_explicit_font_overrides_the_korean_face: no Kore face in this build");
+        return;
+    }
+    let mut doc = styled_text_page("Times-Roman");
+    text::replace_line(&mut doc, 0, 0, "한국어 명조").unwrap();
+    assert!(text::text_lines(&reopen(&doc), 0).unwrap()[0].base_font.contains("HakgyoansimSangjangR"));
+    let mut doc = reopen(&doc);
+    text::rewrite_block(
+        &mut doc,
+        0,
+        0,
+        Some("다른 문장"),
+        &text::BlockStyle { family: Some((added::Family::Helvetica, false, false)), ..Default::default() },
+    )
+    .unwrap();
+    let after = text::text_lines(&reopen(&doc), 0).unwrap()[0].base_font.clone();
+    assert!(after.contains("NanumGothic"), "an explicit Helvetica request must override Sangjang, wrote {after}");
+    assert!(!after.contains("HakgyoansimSangjangR"), "{after}");
+}
+
 /// Without a Korean face the refusal names Korean and says how to get one; nothing is drawn.
 #[test]
 fn korean_replacement_without_a_korean_face_says_so() {
