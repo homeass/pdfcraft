@@ -112,6 +112,22 @@ jobs:
           $dir = (Resolve-Path -LiteralPath craft-fonts-korean).Path
           "CRAFT_FONTS_DIR=$dir" >> $env:GITHUB_ENV
 
+      - name: Merged Korean craft-i18n input
+        shell: pwsh
+        run: |
+          # The merge script is bash (shared with Linux and macOS), and reads craft-i18n.rev
+          # through `git rev-parse` from this checkout's working directory.
+          $bash = (Get-Command bash.exe -ErrorAction SilentlyContinue).Source
+          if (-not $bash) { $bash = 'C:\Program Files\Git\bin\bash.exe' }
+          if (-not (Test-Path -LiteralPath $bash)) { throw 'bash.exe (Git Bash) not found' }
+          $merge = Join-Path $env:RUNNER_TEMP 'craft-i18n-korean-merge.sh'
+          $text = (Get-Content -LiteralPath packaging/craft-i18n-korean-merge.sh -Raw) -replace "`r`n", "`n"
+          [IO.File]::WriteAllText($merge, $text, [Text.UTF8Encoding]::new($false))
+          & $bash ($merge -replace '\\', '/') -o craft-i18n-korean
+          if ($LASTEXITCODE -ne 0) { throw "craft-i18n-korean-merge.sh exited $LASTEXITCODE" }
+          $dir = (Resolve-Path -LiteralPath craft-i18n-korean).Path
+          "CRAFT_I18N_DIR=$dir" >> $env:GITHUB_ENV
+
       - name: OCR models
         shell: pwsh
         run: |
