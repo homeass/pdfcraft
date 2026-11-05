@@ -101,6 +101,7 @@ REPO=/Volumes/ExternalSSD/Code/work/pdfcraft (재클론·새 워크트리 금지
  실행(PID) 확인, 배포본 CLI(`PDFCRAFT_MODELS=/Applications/PdfCraft.app/Contents/Resources/models`)로 Vision 한글 스모크
  (`/private/tmp`등에 픽스처 재생성 — /tmp는 며칠 만에 정리된다), 저장 파일에서 한글 재추출
 - 산출물 무결성: 릴리스에서 받아와 `sha256`을 저장소측 `digest`와 대조, `SHA256SUMS.txt`로 `-c`
+- 잔여물 검사: `find /Applications/PdfCraft.app -name '*.rten*'`가 0개, 모델 4종+라이선스 존재, `codesign --verify --strict --deep`
 
 ## 9) 문서·마무리
 - 각 자산 sha256을 `gh release view --json assets`의 `digest`로 교차 확인해 본문·README·`SHA256SUMS.txt`(자기 자신 제외)에 반영
@@ -128,6 +129,9 @@ REPO=/Volumes/ExternalSSD/Code/work/pdfcraft (재클론·새 워크트리 금지
 | `ditto` 병합 설치 | 옛 `.rten` 잔여물로 strict 검증 실패 | `rm -rf` 후 복사 |
 | Linux glibc 하한 | ubuntu-24.04 빌드는 22.04에서 실행 불가 | 본문에 명시, AppImage는 미증명이면 생략 |
 | PIL 없는 python | 픽셀 비교 실패 | `sips -s format bmp` + 표준 라이브러리 |
+| `gh run watch` 조기 종료 | 잡이 `in_progress`인데 exit 0 + `conclusion: ""` → 자산 없는 걸 성공으로 오인 | 상태 폴링(`--json status`가 `completed`일 때까지) + `gh release view --json assets`로 실제 부착 확인 |
+| 카탈로그 임베드 위치 | CLI zip에서 라벨 0개 → 합성 누락으로 오판 | GUI 앱 바이너리(`Contents/MacOS/PdfCraft`)에서 검사 |
+| `/tmp` 정리 + PIL 없는 python | 며칠 뒤 검증 픽스처·Pillow가 없어 스모크 실패 | 검증에는 저장소 픽스처 `crates/ocr/tests/data/fixture-ko.png`를 쓰고, 재생성이 필요하면 고정 스크립트를 워크스페이스에 보관 |
 | 한글 IME | 스페이스 전까지 캐럿이 안 밀린다는 보고 | `ime_text`가 앱 경로 정상 증명 → 플랫폼 측, 실물 키보드 절차로 승부 |
 ```
 
