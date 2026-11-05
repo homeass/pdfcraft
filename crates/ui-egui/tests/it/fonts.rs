@@ -421,7 +421,6 @@ fn primary_ui_fonts_cover_latin_and_cyrillic_catalogs() {
     let fallback = &defs.font_data["Inter"];
     let fallback_font = skrifa::FontRef::from_index(fallback.font.as_ref().as_ref(), fallback.index).unwrap();
     let fallback_charmap = fallback_font.charmap();
-    let mut hangul_note_printed = false;
     for (code, catalog) in [
         ("cs", &catalog("cs")),
         ("el", &catalog("el")),
@@ -456,16 +455,9 @@ fn primary_ui_fonts_cover_latin_and_cyrillic_catalogs() {
         // which draws them through the UI Korean fallback chain, so they are not Inter's to
         // cover — but they must not be boxes.
         let is_hangul = |c: char| matches!(u32::from(c), 0x1100..=0x11ff | 0x3130..=0x318f | 0xac00..=0xd7a3);
-        let mut hangul: Vec<char> = Vec::new();
         for line in catalog.lines().filter(|l| !l.starts_with('#')) {
             if let Some(translation) = line.split('\t').nth(2) {
-                for c in translation.chars().filter(|c| !c.is_whitespace()) {
-                    if is_hangul(c) {
-                        hangul.push(c);
-                    } else {
-                        text.push(c);
-                    }
-                }
+                text.extend(translation.chars().filter(|c| !c.is_whitespace() && !is_hangul(*c)));
             }
         }
         for name in ["Inter", "Inter-Medium", "Inter-SemiBold", "JetBrainsMono"] {
@@ -478,28 +470,37 @@ fn primary_ui_fonts_cover_latin_and_cyrillic_catalogs() {
             missing.dedup();
             assert!(missing.is_empty(), "{code}: {name} lacks {missing:?}");
         }
-        let kore = pdfcraft_fonts::ui_korean_fonts();
-        if !hangul.is_empty() && !kore.is_empty() {
-            let covered = hangul
-                .iter()
-                .all(|c| kore.iter().any(|f| skrifa::FontRef::from_index(f.bytes, 0).is_ok_and(|font| font.charmap().map(*c).is_some())));
-            assert!(covered, "{code}: the bracketed Hangul {hangul:?} has no glyph in the UI Korean fallback chain");
-        } else if !hangul_note_printed {
-            // The Korean face-name rows (`Hakgyoansim Namu → 학교안심 나무`, …) lived in this
-            // repository's tsv catalogs, which upstream moved to craft-i18n at 0.18.2. They are
-            // deliberately un-landed until the owner decides where they go, so say the half is
-            // idle instead of passing silently (the assertion above still runs once they land).
-            hangul_note_printed = true;
-            if hangul.is_empty() {
-                eprintln!(
-                    "note: the pinned craft-i18n catalogs carry no bracketed Hangul face-label rows (un-landed kstyles rows); the Hangul half of primary_ui_fonts_cover_latin_and_cyrillic_catalogs has nothing to check"
-                );
-            } else {
-                eprintln!(
-                    "skipping the Hangul half of primary_ui_fonts_cover_latin_and_cyrillic_catalogs: no Kore face bundled (set CRAFT_FONTS_DIR with a Korean face)"
-                );
-            }
-        }
+    }
+
+    // Korean face labels: `korean_face_note` looks these up as `Hakgyoansim Namu (학교안심 나무)`,
+    // `NanumGothic (나눔고딕)`, …; the bracketed Hangul is drawn by the UI Korean fallback chain,
+    // not by Inter, so it is checked separately. The rows come from
+    // `packaging/craft-i18n-korean-merge.sh`; upstream's pin alone has none.
+    let korean_catalog = catalog("ko");
+    let is_hangul = |c: char| matches!(u32::from(c), 0x1100..=0x11ff | 0x3130..=0x318f | 0xac00..=0xd7a3);
+    let hangul: Vec<char> = korean_catalog
+        .lines()
+        .filter(|l| !l.starts_with('#'))
+        .filter_map(|l| l.split('\t').nth(2))
+        .flat_map(|translation| translation.chars().filter(|c| !c.is_whitespace() && is_hangul(*c)))
+        .collect();
+    let kore = pdfcraft_fonts::ui_korean_fonts();
+    if korean_catalog.is_empty() {
+        eprintln!(
+            "skipping the Hangul half of primary_ui_fonts_cover_latin_and_cyrillic_catalogs: no Korean catalog embedded (set CRAFT_I18N_DIR to the output of packaging/craft-i18n-korean-merge.sh)"
+        );
+    } else if hangul.is_empty() {
+        eprintln!(
+            "skipping the Hangul half of primary_ui_fonts_cover_latin_and_cyrillic_catalogs: the Korean catalog has no face-label rows (run packaging/craft-i18n-korean-merge.sh and point CRAFT_I18N_DIR at its output)"
+        );
+    } else if kore.is_empty() {
+        eprintln!(
+            "skipping the Hangul half of primary_ui_fonts_cover_latin_and_cyrillic_catalogs: no Kore face bundled (set CRAFT_FONTS_DIR with a Korean face)"
+        );
+    } else {
+        let covered =
+            hangul.iter().all(|c| kore.iter().any(|f| skrifa::FontRef::from_index(f.bytes, 0).is_ok_and(|font| font.charmap().map(*c).is_some())));
+        assert!(covered, "the bracketed Hangul {hangul:?} has no glyph in the UI Korean fallback chain");
     }
 }
 
