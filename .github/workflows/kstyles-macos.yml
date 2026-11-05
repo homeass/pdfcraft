@@ -62,6 +62,12 @@ jobs:
           bash packaging/craft-fonts-korean-merge.sh -o craft-fonts-korean
           echo "CRAFT_FONTS_DIR=$GITHUB_WORKSPACE/craft-fonts-korean" >> "$GITHUB_ENV"
 
+      - name: Merged Korean craft-i18n input
+        run: |
+          set -euo pipefail
+          bash packaging/craft-i18n-korean-merge.sh -o craft-i18n-korean
+          echo "CRAFT_I18N_DIR=$GITHUB_WORKSPACE/craft-i18n-korean" >> "$GITHUB_ENV"
+
       - name: Version and label
         run: |
           set -euo pipefail
