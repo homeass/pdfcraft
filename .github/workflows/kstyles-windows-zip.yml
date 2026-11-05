@@ -6,7 +6,7 @@ name: kstyles Windows zip
 # package.ps1, then runs a headless Korean roundtrip from the extracted portable zip.
 #
 # Dispatch: gh workflow run kstyles-windows-zip.yml --ref feat/18-kstyles \
-#   -f tag=v0.18.0-kstyles15 -f version=0.18.0 -f label=kstyles15
+#   -f tag=v0.18.0-kstyles15 -f version=0.18.2 -f label=kstyles15
 # `version` and `label` default to the release this branch ports; the label is what
 # PDFCRAFT_BUILD_LABEL compiles into --version and what PDFCRAFT_VERSION carries into file names.
 #
@@ -29,7 +29,7 @@ on:
       version:
         description: "Release version the build reports (workspace [workspace.package] version)"
         required: true
-        default: "0.18.0"
+        default: "0.18.2"
         type: string
       label:
         description: "Build label, compiled into --version and appended to the package version"
@@ -111,6 +111,22 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "craft-fonts-korean-merge.sh exited $LASTEXITCODE" }
           $dir = (Resolve-Path -LiteralPath craft-fonts-korean).Path
           "CRAFT_FONTS_DIR=$dir" >> $env:GITHUB_ENV
+
+      - name: Merged Korean craft-i18n input
+        shell: pwsh
+        run: |
+          # The merge script is bash (shared with Linux and macOS), and reads craft-i18n.rev
+          # through `git rev-parse` from this checkout's working directory.
+          $bash = (Get-Command bash.exe -ErrorAction SilentlyContinue).Source
+          if (-not $bash) { $bash = 'C:\Program Files\Git\bin\bash.exe' }
+          if (-not (Test-Path -LiteralPath $bash)) { throw 'bash.exe (Git Bash) not found' }
+          $merge = Join-Path $env:RUNNER_TEMP 'craft-i18n-korean-merge.sh'
+          $text = (Get-Content -LiteralPath packaging/craft-i18n-korean-merge.sh -Raw) -replace "`r`n", "`n"
+          [IO.File]::WriteAllText($merge, $text, [Text.UTF8Encoding]::new($false))
+          & $bash ($merge -replace '\\', '/') -o craft-i18n-korean
+          if ($LASTEXITCODE -ne 0) { throw "craft-i18n-korean-merge.sh exited $LASTEXITCODE" }
+          $dir = (Resolve-Path -LiteralPath craft-i18n-korean).Path
+          "CRAFT_I18N_DIR=$dir" >> $env:GITHUB_ENV
 
       - name: OCR models
         shell: pwsh

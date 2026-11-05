@@ -6,7 +6,7 @@ name: kstyles Linux deb
 # installs the .deb and repeats the roundtrip against /usr/bin and /usr/share/pdfcraft/models.
 #
 # Dispatch: gh workflow run kstyles-linux-deb.yml --ref feat/18-kstyles \
-#   -f tag=v0.18.0-kstyles15 -f version=0.18.0 -f label=kstyles15
+#   -f tag=v0.18.0-kstyles15 -f version=0.18.2 -f label=kstyles15
 # `version` and `label` default to the release this branch ports; the label is what
 # PDFCRAFT_BUILD_LABEL compiles into `--version` and what the assertions below expect.
 #
@@ -29,7 +29,7 @@ on:
       version:
         description: "Release version the build reports (workspace [workspace.package] version)"
         required: true
-        default: "0.18.0"
+        default: "0.18.2"
         type: string
       label:
         description: "Build label, compiled into --version and appended to the package release"
@@ -103,6 +103,13 @@ jobs:
           chmod +x packaging/craft-fonts-korean-merge.sh
           packaging/craft-fonts-korean-merge.sh -o "$GITHUB_WORKSPACE/craft-fonts-korean"
           echo "CRAFT_FONTS_DIR=$GITHUB_WORKSPACE/craft-fonts-korean" >> "$GITHUB_ENV"
+
+      - name: Merged Korean craft-i18n input
+        run: |
+          set -euo pipefail
+          chmod +x packaging/craft-i18n-korean-merge.sh
+          packaging/craft-i18n-korean-merge.sh -o "$GITHUB_WORKSPACE/craft-i18n-korean"
+          echo "CRAFT_I18N_DIR=$GITHUB_WORKSPACE/craft-i18n-korean" >> "$GITHUB_ENV"
 
       - name: OCR models
         run: |
