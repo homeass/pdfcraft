@@ -1575,3 +1575,28 @@ fn image_paste_and_home_notifications_are_translated() {
         }
     }
 }
+
+/// The Korean face labels the font pickers look up resolve from the merged craft-i18n input
+/// (`packaging/craft-i18n-korean-merge.sh`); `Korean` itself already comes from upstream's
+/// shared catalog. A skipped or malformed row would fall back to the English key, so these
+/// assertions fail rather than passing silently.
+#[test]
+fn korean_face_labels_resolve_from_the_merged_catalogs() {
+    needs_catalogs!();
+    let ko = Lang::from_code("ko").expect("ko registered");
+    for (english, korean) in [
+        ("Korean", "한국어"),
+        ("NanumGothic", "나눔고딕"),
+        ("Hakgyoansim Namu", "학교안심 나무"),
+        ("Hakgyoansim Sangjang", "학교안심 상장"),
+        ("Hakgyoansim Chulseokbu", "학교안심 출석부"),
+    ] {
+        println!("{english} -> {}", tr(ko, english));
+        assert_eq!(tr(ko, english), korean, "{english} in ko");
+    }
+    // The picker asks through the current language, the path the UI uses.
+    let previous = current();
+    set_current(ko);
+    assert_eq!(t("Hakgyoansim Namu"), "학교안심 나무");
+    set_current(previous);
+}
