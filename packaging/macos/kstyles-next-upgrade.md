@@ -15,8 +15,8 @@
 ---
 
 ```
-- `github/homeass/pdfcraft`(한글 폰트·한글 OCR 체인 포크)를 버전 업그레이드 (0.18.0 → vX.Y)
-- 한글 체인(태그 `v0.18.0-kstyles16`, 브랜치 `feat/18-kstyles`)을 새 업스트림 위로 재이식하고
+- `github/homeass/pdfcraft`(한글 폰트·한글 OCR 체인 포크)를 버전 업그레이드 (0.18.2 → vX.Y)
+- 한글 체인(태그 `v0.18.2-kstyles17`, 브랜치 `feat/18.2-kstyles17`)을 새 업스트림 위로 재이식하고
   릴리스 **vX.Y-kstylesNN** 태그로 배포(macOS arm64 · Ubuntu x86_64 · Windows x64, 전부 네이티브 CI)
 - 세 플랫폼 모두 GitHub Actions 네이티브 러너에서 빌드·검증하고 같은 태그에 부착(로컬 수동 산출물 없음)
 - Mac Studio의 기존 `/Applications/PdfCraft.app`에 덮어쓰기 설치하고 실행·스모크 확인
@@ -24,21 +24,35 @@
 - 세션 내용을 md로 워크스페이스(`/Volumes/ExternalSSD/Code/work`)에 저장하고, 이 프롬프트 섹션을 마지막에 갱신해 유지
 
 ## 진행 순서
+0) **베이스가 무엇인지 먼저 확정**: `git merge-base --is-ancestor <태그> refs/remotes/upstream/main`가 NO면
+   그 릴리스 태그는 trunk에 없다(0.18.2가 정확히 그랬다 — trunk는 그 뒤 168개 PR). 이때는 오너에게
+   "릴리스 태그 vs trunk"를 물어 정하고, 포크 `main`은 trunk 미러로 그대로 두어도 된다
+   (워크플로가 이미 main에 등록돼 있으면 dispatch에 지장 없음).
+   커밋 메시지로 콘텐츠를 추론하지 말 것: `git show --stat <태그>` — "Release 0.18.2" 한 커밋이 186파일 +22,684/−1,874
+   콘텐츠 커밋이었다.
 1) 동기화: `git fetch --all --tags` → 업스트림 태그 vX.Y 확인 → 포크 `main`이 포함 안 하면
    `git worktree add --detach /tmp/wt refs/remotes/origin/main`에서 `git merge upstream/main` 후
    `git push origin HEAD:main`(저장소 안에서 worktree 경로를 상대명 `origin/main`으로 주면 디렉터리가 생기고
    push가 non-fast-forward로 오해받으니 **항상 /tmp 절대경로 + `refs/remotes/origin/main`** 리비트).
    머지 결과 확인: `git diff --name-only upstream/main HEAD`는 `.github/workflows/kstyles-*.yml`만 있어야 함.
-2) 재이식: `MB=$(git merge-base origin/feat/18-kstyles refs/remotes/origin/main)` →
-   `git checkout -b feat/<NN> origin/feat/18-kstyles && git rebase --onto refs/remotes/origin/main $MB`
+2) 재이식: `MB=$(git merge-base origin/feat/<직전 브랜치> <새 베이스>)` →
+   `git checkout -b feat/<NN> origin/feat/<직전 브랜치> && git rebase --onto <새 베이스> $MB`
    (스쿼시 금지, 업스트림 커밋 재이식 금지 — `--no-merges` 포트 커밋 수와 대조).
    겹침 사전 계산: `comm -12 <(git diff --name-only $MB..origin/feat/18-kstyles|sort) <(git diff --name-only vX.Y-1 vX.Y|sort)`.
 3) 충돌 해결과 **조용한 회귀 증명**: 자동 병합돼도 기능이 사라지는 경우가 있다(kstyles15의
    `format_text_ui.rs`: 업스트림이 패널을 `outlined()/boxed()/centred()`로 리팩터하며 포트의 Tinos 프리뷰를 삼킴,
    테스트가 못 잡음). 모든 실충돌 파일에 대해 `git diff <업스트림 태그> -- <파일>`이 **포트 추가분만** 보여주는지 확인.
+3b) **카탈로그/자산의 "이사"를 의심**: 체인이 편집하던 파일이 새 베이스에서 사라졌으면
+   (`git log --diff-filter=D -- <path>`) 데이터가 외부로 나간 것이다. 0.18.2는 34개 i18n 카탈로그를
+   `craft-i18n`(flatpak이 핀한 커밋)으로 옮겼고, 그때 우리 한글 라벨 4행은 **죽은 데이터**가 되면서도
+   `tr()`이 영어로 폴백해 **테스트는 green**이었다. 대응은 폰트와 같은 합성 패턴
+   (`packaging/craft-i18n-korean-merge.sh` → `CRAFT_I18N_DIR`, 업스트림 pin/flatpak 핀은 손대지 않음)이고,
+   합성 없이는 스킵 이유를 명시 출력하도록 테스트를 고친다.
 4) 자동 병합 파일은 스크립트로 양쪽 기능 공존을 검사(예: `korean_fallback`+`jbig2_work`, `is_korean`+`dict_in_place`,
    `"ko"`+`inherit`+`images_refused`, 한글 렌더 테스트+JBIG2 테스트, `mark_transactions`+한글 편집 테스트, parity 한글 행).
-5) 생성파일 규칙: `ATTRIBUTION.md`는 `cargo xtask assets --write`로만(**`assets`는 `cargo xtask ci`에 없음**),
+5) 생성파일 규칙: `ATTRIBUTION.md`는 `cargo xtask assets --write`로만(`assets`는 `cargo xtask ci`에 이름으로 없지만
+   `license-check`가 통째로 돌려 실효 게이트다; 0.18.2에서 번역 카탈로그의 sha 면제가 폐지되어 카탈로그 항목이
+   남아있으면 "listed but missing"으로 실패),
    `NOTICE`와 `LICENSES.toml`의 NOTICE 해시는 한 세트로 이동(`license-check`에 `--write` 없음 —
    업스트림이 해시 대상 문서를 바꿨을 때만 1줄 재감사하고 이전 해시는 주석에 보존), `Cargo.lock` 손편집 금지.
 6) 게이트(모든 명령에 `export PATH=$HOME/.cargo/bin:$PATH`, `CRAFT_FONTS_DIR`+`CRAFT_FONTS_REQUIRED=1`):
@@ -88,5 +102,9 @@
 | `ditto` 병합 설치 | 옛 `.rten` 잔여물으로 strict 검증 실패 | `rm -rf` 후 복사 |
 | Linux glibc 하한 | ubuntu-24.04 빌드는 22.04에서 실행 불가 | 릴리스 본문에 명시, AppImage는 헤드리스 미증명이면 생략 |
 | PIL 없는 python | 픽셀 비교 실패 | `sips -s format bmp` + 표준 라이브러리로 메트릭 |
+| 카탈로그 이주로 조용한 손실 | 라벨이 영어로 바뀌어도 테스트는 green | §3b, 합성 스크립트 + 명시 스킵 |
+| flatpak pin 테스트 위치 | `--test it`/`--lib` 필터로 0 통과(필터가 못 만남) | `cargo test -p pdfcraft --bin pdfcraft flatpak` |
+| `gh release download -p` 여러 개 | 마지막 패턴만 적용돼 일부 자산 누락 | `--pattern` 반복 + `--clobber`, 존재하면 에러 |
+| `set -e` + 반한값 1 | `pkill`, 파일 존재 시 `gh download`가 스크립트를 조용히 중단 | `\|\| true` |
 | 한글 IME | 스페이스 전까지 캐럿 안 밀남(보고) | 앱 아님 판정됨: `ime_text`가 런타임 증빙, 남은 건 실물 2-Set Korean 비교 |
 ```
