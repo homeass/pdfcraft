@@ -7,19 +7,19 @@ name: kstyles macOS DMG
 # LaunchServices, which makes upgrading odd (duplicate-replace prompts, stale registration).
 # Ad-hoc signed, not notarized: first launch needs right-click ▸ Open (see kmacos1-notes.md).
 #
-# Dispatch: gh workflow run kstyles-macos-dmg.yml --ref feat/18-kstyles -f tag=v0.18.0-kstyles15
+# Dispatch: gh workflow run kstyles-macos-dmg.yml --ref feat/19.0-kstyles18 -f tag=v0.19.0-kstyles18
 on:
   workflow_dispatch:
     inputs:
       tag:
         description: "Release tag whose macos-aarch64 tar.gz becomes the DMG (asset attaches to it)"
         required: true
-        default: v0.18.0-kstyles15
+        default: v0.19.0-kstyles18
         type: string
       ref:
         description: "Branch or commit to check out (the DMG recipe and entitlements come from it)"
         required: true
-        default: feat/18-kstyles
+        default: feat/19.0-kstyles18
         type: string
 
 permissions:
