@@ -5,7 +5,7 @@ name: kstyles macOS build
 # the boot volume, so package.sh's in-image `hdiutil attach` gate passes here (it EPERMs when the
 # workspace sits on an external volume), and the whole chain is reproducible without a local Mac.
 #
-# Dispatch: gh workflow run kstyles-macos.yml --ref main -f tag=v0.18.0-kstyles15 -f ref=feat/18-kstyles
+# Dispatch: gh workflow run kstyles-macos.yml --ref main -f tag=v0.19.0-kstyles18 -f ref=feat/19.0-kstyles18
 #
 # Ad-hoc signed, not notarized (the fork has no Apple secrets): first launch on another Mac needs
 # right-click ▸ Open, or `xattr -d com.apple.quarantine /Applications/PdfCraft.app`.
@@ -17,12 +17,12 @@ on:
       tag:
         description: "Release tag the artifacts attach to"
         required: true
-        default: v0.18.0-kstyles15
+        default: v0.19.0-kstyles18
         type: string
       ref:
         description: "Branch or commit to build"
         required: true
-        default: feat/18-kstyles
+        default: feat/19.0-kstyles18
         type: string
 
 permissions:
