@@ -14,8 +14,7 @@ use std::time::{Duration, Instant};
 use pdfcraft_render::{PageInfo, PageRenderer, RenderConfig, RenderRequest, RequestKind};
 
 pub use pdfcraft_ocr::{
-    ConfidenceBand, LANGUAGES, MergeStrategy, Models, Ocr, OcrError, PlacedWord, Recognizer, band_for, is_suspect, language_available,
-    low_confidence,
+    ConfidenceBand, LANGUAGES, MergeStrategy, Models, Ocr, OcrError, PlacedWord, Recognizer, band_for, is_suspect, language_available, low_confidence,
 };
 
 use crate::{DocId, Edit, EditError, Session};
@@ -733,12 +732,6 @@ impl OcrJob {
                 #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
                 {
                     let lines = match pdfcraft_ocr::recognize_korean(&shot.rgba, shot.width, shot.height) {
-                        Ok(l) => l,
-                        Err(e) => {
-                            out.push(skip(&e.to_string()));
-                            continue;
-                        }
-                    };
                         Ok(l) => l,
                         Err(e) => {
                             out.push(skip(&e.to_string()));

@@ -77,7 +77,7 @@ pub fn language_available(language: &str) -> bool {
 pub fn recognize_korean(rgba: &[u8], width: u32, height: u32) -> Result<Vec<Line>, OcrError> {
     #[cfg(target_os = "macos")]
     {
-        return vision::recognize(rgba, width, height);
+        vision::recognize(rgba, width, height)
     }
     #[cfg(any(target_os = "linux", target_os = "windows"))]
     {
@@ -94,7 +94,7 @@ pub fn recognize_korean(rgba: &[u8], width: u32, height: u32) -> Result<Vec<Line
                 korean
             }
         };
-        return korean.recognize(rgba, width, height);
+        korean.recognize(rgba, width, height)
     }
 }
 
@@ -258,8 +258,6 @@ impl Default for RecognizeOptions {
         RecognizeOptions { language: "en".into() }
     }
 }
-    }
-}
 
 /// One text-recognition engine. Implementations are shared across threads
 /// (`Arc<dyn Recognizer>`); `available` and `recognize` may spawn processes only off the web
@@ -274,7 +272,6 @@ pub trait Recognizer: Send + Sync {
     fn languages(&self) -> Vec<(String, String)>;
     /// Read the words in `image`, in reading order.
     fn recognize(&self, image: &OcrImage, options: &RecognizeOptions) -> Result<Vec<Line>, OcrError>;
-}
 }
 
 /// A word placed on a page, in PDF user space: the bottom-left corner of its box, and the
@@ -865,13 +862,15 @@ mod tests {
     /// End to end on rendered text, when the models are installed (`cargo xtask models`).
     #[test]
     fn reads_rendered_text() {
-        let Some(models) = Models::find() else {
+        let Ok(rec) = OcrsRecognizer::find() else {
             eprintln!("skipped: OCR models not installed");
             return;
         };
-        let ocr = Ocr::load(&models).unwrap();
         let (w, h, px) = test_image::hello();
-        let lines = ocr.recognize("en", &px, w, h).unwrap();
+        let image = OcrImage::new(w, h, px).unwrap();
+        let lines = rec
+            .recognize(&image, &RecognizeOptions { language: "en".into() })
+            .unwrap();
         let text: Vec<String> = lines.iter().map(Line::text).collect();
         assert!(text.iter().any(|t| t.contains("HELL") && t.contains("WOR")), "{text:?}");
         let word = lines.iter().flat_map(|l| &l.words).find(|w| w.text.contains("HELL")).unwrap();
