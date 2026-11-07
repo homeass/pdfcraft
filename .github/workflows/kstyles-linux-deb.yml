@@ -29,12 +29,12 @@ on:
       version:
         description: "Release version the build reports (workspace [workspace.package] version)"
         required: true
-        default: "0.18.2"
+        default: "0.19.0"
         type: string
       label:
         description: "Build label, compiled into --version and appended to the package release"
         required: true
-        default: kstyles15
+        default: kstyles18
         type: string
 
 permissions:
