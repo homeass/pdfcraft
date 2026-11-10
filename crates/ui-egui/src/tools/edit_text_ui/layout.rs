@@ -176,7 +176,9 @@ pub(crate) fn install_source_fonts(
     page: usize,
     look: &pdfcraft_engine::AddedText,
 ) -> BTreeMap<String, String> {
-    let programs = doc.text_editor_fonts(page);
+    let programs: Vec<_> = doc.text_editor_fonts(page).into_iter().filter(|font| !font.choice_only).collect();
+    // Bundled replacement selectors are menu choices, never source resource names. Installing
+    // an unused choice would make even a standard-font editor wait a frame for its font atlas.
     let mut definitions = ctx.fonts(|f| f.definitions().clone());
     // Only the current editor's document fonts live in the atlas. Never accumulate the
     // programs of previously opened files or add them to the interface's default families.
