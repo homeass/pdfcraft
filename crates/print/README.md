@@ -34,6 +34,17 @@ spool::submit(&pdf, &spool::Job { printer: None, copies: 2, ..Default::default()
   the GUI thread, and gives `lpoptions` ten seconds: a CUPS that has stopped answering leaves
   the PPD's own defaults in force instead of holding the dialog (#1818; `spool::output_within`
   kills and reaps the command at the deadline).
+- **Remembered choices** (#2001): the dialog keeps two-sided (including leaving it to the
+  printer), grayscale, collate, page sizing (with its custom percent), Comments & forms and a
+  booklet's binding side across restarts, in the settings file under `print` with the names
+  `doc_print` takes (`names::duplex`, `names::content`, `names::size_mode` and their `parse_*`
+  counterparts are the one vocabulary). The paper is saved by its own setting (#2156).
+- **Each job starts afresh**: copies, pages (the choice, the range, odd/even and reverse), the
+  layout with its own options (pages per sheet, order, borders, booklet subset, poster scale,
+  overlap and cut marks) and orientation reset to the defaults each time Print opens, in the
+  same session too; ISO 32000-2 Table 147 initialises them per document when the print dialog
+  opens. Picked thumbnails still open it on Selected pages. The printer picked last carries over
+  within a session (#3537) but is not saved.
 
 Each source page becomes a Form XObject (its content wrapped in q/Q, plus the printable
 annotations); sheets place them with a clip. The result is a fresh, unencrypted,
@@ -49,13 +60,23 @@ Headless `doc_print` defaults are unchanged.
 `spool` delegates discovery, driver options, preferences and submission to
 [`craft-print`](https://github.com/storytold/craft-libs/tree/main/crates/print).
 PdfCraft retains page selection, imposition, annotations and print-permission checks.
-CUPS jobs stream through stdin with `fit-to-page=false`; on macOS they also carry the job
-name and owner (`com.apple.print.JobInfo.PMJobName`, `PMJobOwner`) as the system print dialog
-sends them, which some vendors' filters need (#5743). Windows renders sheets through
+CUPS jobs stream through stdin with `fit-to-page=false`, and with `orientation-requested=4` when
+every sheet is landscape (`cups_orientation`), since CUPS would otherwise shrink a landscape
+sheet into portrait paper. On macOS they also carry the job name and owner
+(`com.apple.print.JobInfo.PMJobName`, `PMJobOwner`) as the system print dialog sends them, which
+some vendors' filters need (#5743). Windows renders sheets through
 `Windows.Data.Pdf` and spools them at their physical PDF size with per-page paper and
 orientation, zero added margins and hardware-edge clipping. Long-edge and short-edge duplex
 use the corresponding Windows binding edges. Random, exclusively created Windows job files
 are removed on success and failure. Other targets offer the print-ready PDF instead.
+
+Before a job reaches the Windows spooler, every embedded TrueType or OpenType program is
+renamed `PdfCraftPrint<n>` in its `name` table and in the PDF (`/BaseFont`, `/FontName`; a
+subset keeps its tag). Windows otherwise draws a subset's renumbered glyphs with the installed
+font of the same name, so ReportLab's Arial subsets printed as shifted letters (#3132). Glyphs,
+encodings and `/ToUnicode` are unchanged, and CUPS and Save as PDF get the PDF as it was. A
+program PdfCraft can't read and rewrite keeps its old name in the PDF too, so a viewer that
+can't load it either still picks its substitute by that name.
 
 The shared dependency requires Rust 1.95. Transport and native Windows regression tests
 live in craft-libs; local tests retain composition, facade, engine, automation and UI coverage.
