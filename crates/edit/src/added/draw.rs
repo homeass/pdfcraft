@@ -7,8 +7,8 @@ use super::{
     Content, CraftFont, Dict, Document, EditError, GlyphError, GlyphOutline, Object, PdfString, ShapedCluster, ShapedScript, align_code, check,
     check_on_top, craft_advance, craft_has, japanese_glyph_from, literal, matrix_number, n, page_list, place_tagged, shaped_glyph, win_ansi,
 };
-use pdfcraft_fonts::shaped_text::{self, ShapedFonts};
 use crate::text::is_korean;
+use pdfcraft_fonts::shaped_text::{self, ShapedFonts};
 use std::fmt::Write as _;
 
 fn font_name(base: &str) -> String {
@@ -98,14 +98,10 @@ pub(super) fn draw_laid_shaped(
     };
     let (ko, rest): (Vec<&ShapedCluster>, Vec<&ShapedCluster>) =
         shaped_text::clusters(laid.iter().map(|(_, _, _, pieces, _)| pieces.as_slice())).partition(|c| c.script == ShapedScript::Korean);
-    let ko_shaped = ShapedFonts::new(ko, &outline, taken, &mut *fonts, "PCKo", korean_face, &mut |o| {
-        Object::Ref(doc.add(o))
-    })
-    .map_err(|(e, c)| map_err(e, c))?;
-    let shaped = ShapedFonts::new(rest, &outline, taken, &mut *fonts, "PCAr", None, &mut |o| {
-        Object::Ref(doc.add(o))
-    })
-    .map_err(|(e, c)| map_err(e, c))?;
+    let ko_shaped =
+        ShapedFonts::new(ko, &outline, taken, &mut *fonts, "PCKo", korean_face, &mut |o| Object::Ref(doc.add(o))).map_err(|(e, c)| map_err(e, c))?;
+    let shaped =
+        ShapedFonts::new(rest, &outline, taken, &mut *fonts, "PCAr", None, &mut |o| Object::Ref(doc.add(o))).map_err(|(e, c)| map_err(e, c))?;
     out.extend(format!("BT {}\n", t.fill_op()).bytes());
     if t.char_spacing != 0.0 {
         out.extend(format!("{} Tc\n", n(t.char_spacing)).bytes());
@@ -143,7 +139,6 @@ pub(super) fn draw_laid_shaped(
     out.extend_from_slice(b"ET\n");
     Ok(())
 }
-
 
 /// A word the recognizer found, in PDF user space: the bottom-left corner of its box
 /// (`origin`) and the vectors along its bottom (`across`, in reading direction) and left

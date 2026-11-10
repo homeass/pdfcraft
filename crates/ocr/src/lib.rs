@@ -31,9 +31,7 @@ pub mod tesseract;
 
 pub use confidence::{ConfidenceBand, band_for, is_suspect, low_confidence};
 pub use merge::{MergeStrategy, StrategyOutcome, mean_confidence, recognize_with_strategy, rover_merge};
-pub use ocrs::{
-    ALPHABET, DETECTION_MODEL, DETECTION_MODEL_SHA256, Models, Ocr, OcrsRecognizer, RECOGNITION_MODEL, RECOGNITION_MODEL_SHA256,
-};
+pub use ocrs::{ALPHABET, DETECTION_MODEL, DETECTION_MODEL_SHA256, Models, Ocr, OcrsRecognizer, RECOGNITION_MODEL, RECOGNITION_MODEL_SHA256};
 
 pub use pdfcraft_fonts::TextPlan;
 #[cfg(any(target_os = "linux", target_os = "windows"))]
@@ -922,9 +920,7 @@ mod tests {
         };
         let (w, h, px) = test_image::hello();
         let image = OcrImage::new(w, h, px).unwrap();
-        let lines = rec
-            .recognize(&image, &RecognizeOptions { language: "en".into() })
-            .unwrap();
+        let lines = rec.recognize(&image, &RecognizeOptions { language: "en".into() }).unwrap();
         let text: Vec<String> = lines.iter().map(Line::text).collect();
         assert!(text.iter().any(|t| t.contains("HELL") && t.contains("WOR")), "{text:?}");
         let word = lines.iter().flat_map(|l| &l.words).find(|w| w.text.contains("HELL")).unwrap();
