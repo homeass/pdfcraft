@@ -5,7 +5,7 @@ name: kstyles macOS build
 # the boot volume, so package.sh's in-image `hdiutil attach` gate passes here (it EPERMs when the
 # workspace sits on an external volume), and the whole chain is reproducible without a local Mac.
 #
-# Dispatch: gh workflow run kstyles-macos.yml --ref main -f tag=v0.19.0-kstyles18 -f ref=feat/19.0-kstyles18
+# Dispatch: gh workflow run kstyles-macos.yml --ref main -f tag=v0.21.0-kstyles20 -f ref=feat/21.0-kstyles20
 #
 # Ad-hoc signed, not notarized (the fork has no Apple secrets): first launch on another Mac needs
 # right-click ▸ Open, or `xattr -d com.apple.quarantine /Applications/PdfCraft.app`.
@@ -17,12 +17,12 @@ on:
       tag:
         description: "Release tag the artifacts attach to"
         required: true
-        default: v0.19.0-kstyles18
+        default: v0.21.0-kstyles20
         type: string
       ref:
         description: "Branch or commit to build"
         required: true
-        default: feat/19.0-kstyles18
+        default: feat/21.0-kstyles20
         type: string
 
 permissions:
@@ -74,8 +74,8 @@ jobs:
           # The label has to reach two places at once (packaging/env.sh does NOT fold it into VERSION):
           # PDFCRAFT_BUILD_LABEL drives `--version`/About, PDFCRAFT_VERSION drives the artifact names and
           # Info.plist's PdfCraftVersion — which make-dmg-local.sh reads to write CFBundleVersion
-          # 0.18.0.kstylesNN. Getting this wrong silently yields an unlabelled DMG name and a
-          # CFBundleVersion like 0.18.0.0.18.0. Read the short version from Cargo.toml, never hardcode it.
+          # 0.21.0.kstylesNN. Getting this wrong silently yields an unlabelled DMG name and a
+          # CFBundleVersion like 0.21.0.0.21.0. Read the short version from Cargo.toml, never hardcode it.
           short="$(awk '/^\[workspace.package\]/{p=1;next} /^\[/{p=0} p && $1=="version"{gsub(/[" ]/,"",$3);print $3;exit}' Cargo.toml)"
           label="${TAG#v}"; label="${label#*-}"
           [ "$label" != "$TAG" ] || { echo "error: tag $TAG must look like v<version>-<label>" >&2; exit 1; }
@@ -97,8 +97,8 @@ jobs:
         run: |
           set -euo pipefail
           codesign --verify --strict --deep --verbose=2 target/macos-package/PdfCraft.app
-          # Two different binaries, two different prefixes: build_info prints `pdfcraft 0.18.0 (label)`
-          # for the app and `pdfcraft-cli 0.18.0 (label)` for the CLI. Compare captured strings rather
+          # Two different binaries, two different prefixes: build_info prints `pdfcraft 0.21.0 (label)`
+          # for the app and `pdfcraft-cli 0.21.0 (label)` for the CLI. Compare captured strings rather
           # than piping --version into head/grep, which fails under pipefail when the writer gets SIGPIPE.
           cli="$(target/macos-package/bin/pdfcraft-cli --version | head -1)"
           [ "$cli" = "$PDFCRAFT_EXPECTED_CLI" ] || {
