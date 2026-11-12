@@ -95,7 +95,10 @@ REPO=/Volumes/ExternalSSD/Code/work/pdfcraft (재클론·새 워크트리 금지
 - 태그는 **빌드될 브랜치 팁**에 annotated로 만들고 push, 그 뒤에 릴리스 생성(자산 없이) → dispatch → 자산 부착.
 
 ## 8) 설치·확인 (Mac Studio)
-- 새 백업: 직전 판을 `pdfcraft-kstyles<직전연번>-backup/`로 보존(영어 정식판·kmacos2 백업과 함께 3종 유지)
+- 새 백업: 직전 판을 `pdfcraft-kstyles<직전연번>-backup/`로 보존(영어 정식판·kmacos2 백업과 함께 유지).
+  백업 직후 `xattr -dr com.apple.quarantine <백업>` + 버전 확인까지 해야 완료 —
+  `ditto`가 quarantine을 그대로 복사해, 안 지우면 백업 앱 실행 시 Gatekeeper가 SIGKILL(137)한다
+  (`codesign --verify --strict`는 통과하므로 속기 쉽다).
 - 덮어쓰기: `rm -rf /Applications/PdfCraft.app && ditto <mounted>/PdfCraft.app /Applications/` (plain `ditto`는 병합 → 옛
  `Contents/Resources/models/*.rten` 잔여물이 `codesign --verify --strict`를 깬다)
 - 확인: `--version` == `pdfcraft <버전> (kstylesNN)`, `CFBundleVersion` == `<버전>.kstylesNN`, strict 검증, `Resources/models` 4종+라이선스,
