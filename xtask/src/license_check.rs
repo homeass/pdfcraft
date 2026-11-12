@@ -64,8 +64,8 @@ fn validate(root: &Path) -> Result<()> {
 
 /// Read only the two filename constants consumed by the OCR application. Fail closed if their
 /// declaration format changes; do not guess filenames or add a dependency on the OCR engine.
-fn check_required_ocr_metadata(source: &str, attribution: &assets::Manifest) -> Result<Vec<String>> {
-    let mut problems = Vec::new();
+fn ocr_model_files(source: &str) -> Result<Vec<String>> {
+    let mut files = Vec::new();
     for name in ["DETECTION_MODEL", "RECOGNITION_MODEL"] {
         let prefix = format!("pub const {name}: &str = \"");
         let declarations: Vec<_> = source.lines().map(str::trim).filter_map(|line| line.strip_prefix(&prefix)).collect();
@@ -75,6 +75,15 @@ fn check_required_ocr_metadata(source: &str, attribution: &assets::Manifest) -> 
                 "OCR constant {name}: expected one literal filename declaration in crates/ocr/src/ocrs.rs; update the source validator if its syntax changed"
             );
         };
+        files.push(file.to_owned());
+    }
+    Ok(files)
+}
+
+fn check_required_ocr_metadata(source: &str, attribution: &assets::Manifest) -> Result<Vec<String>> {
+    let mut problems = Vec::new();
+    for file in ocr_model_files(source)? {
+        let file = file.as_str();
         let entries: Vec<_> = attribution.fetched.iter().filter(|f| f.file == file).collect();
         if entries.is_empty() {
             problems.push(format!("{file}: required OCR licensing metadata missing from ATTRIBUTION.toml"));
@@ -409,24 +418,28 @@ mod tests {
     fn required_ocr_models_cannot_be_missing() {
         let source = include_str!("../../crates/ocr/src/ocrs.rs");
         let original = assets::load(&assets::root()).unwrap();
-        assert_eq!(original.fetched.iter().filter(|f| f.kind == "model").count(), 2);
+        // The validator follows the constants in ocrs.rs (the Latin pair). The Korean PaddleOCR
+        // models are extra kind = "model" entries in ATTRIBUTION.toml and are audited by the
+        // manifest check, not by this constant reader.
+        let required = ocr_model_files(source).unwrap();
+        assert_eq!(required.len(), 2);
         assert!(check_required_ocr_metadata(source, &original).unwrap().is_empty());
-        for model in original.fetched.iter().filter(|f| f.kind == "model") {
+        for file in &required {
             let mut m = assets::load(&assets::root()).unwrap();
-            m.fetched.retain(|f| f.file != model.file);
-            assert!(check_required_ocr_metadata(source, &m).unwrap().iter().any(|p| p.contains(&model.file) && p.contains("missing")));
+            m.fetched.retain(|f| &f.file != file);
+            assert!(check_required_ocr_metadata(source, &m).unwrap().iter().any(|p| p.contains(file) && p.contains("missing")));
         }
     }
 
     #[test]
     fn required_ocr_models_cannot_be_misclassified() {
         let source = include_str!("../../crates/ocr/src/ocrs.rs");
-        let original = assets::load(&assets::root()).unwrap();
-        assert_eq!(original.fetched.iter().filter(|f| f.kind == "model").count(), 2);
-        for model in original.fetched.iter().filter(|f| f.kind == "model") {
+        let required = ocr_model_files(source).unwrap();
+        assert_eq!(required.len(), 2);
+        for file in &required {
             let mut m = assets::load(&assets::root()).unwrap();
-            m.fetched.iter_mut().find(|f| f.file == model.file).unwrap().kind = "font".into();
-            assert!(check_required_ocr_metadata(source, &m).unwrap().iter().any(|p| p.contains(&model.file) && p.contains("kind")));
+            m.fetched.iter_mut().find(|f| &f.file == file).unwrap().kind = "font".into();
+            assert!(check_required_ocr_metadata(source, &m).unwrap().iter().any(|p| p.contains(file) && p.contains("kind")));
         }
     }
 
