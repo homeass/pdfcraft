@@ -462,9 +462,7 @@ fn primary_ui_fonts_cover_latin_and_cyrillic_catalogs() {
                 // arrow `▸`, say) is drawn however English draws it, so it is not this catalog's
                 // to cover.
                 for c in translation.chars().filter(|c| !c.is_whitespace() && (c.is_alphanumeric() || !source.contains(*c))) {
-                    if is_hangul(c) {
-                        hangul.push(c);
-                    } else {
+                    if !is_hangul(c) {
                         text.push(c);
                     }
                 }

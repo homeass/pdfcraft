@@ -347,7 +347,9 @@ pub fn fallback_appearance_lines(lines: &[String], thai: bool, latin: bool, font
     let pieces: Vec<Vec<Piece>> =
         lines.iter().map(|l| if l.chars().any(needs) { fallback_pieces(l, thai, latin).unwrap_or_else(|_| plain(l)) } else { plain(l) }).collect();
     let prefix = if thai { "PCTh" } else { "PCLa" };
-    match ShapedFonts::new(clusters(pieces.iter().map(Vec::as_slice)), shaped_glyph, &Dict::new(), fonts, prefix, None, &mut |o| o).map_err(|(e, _)| e) {
+    match ShapedFonts::new(clusters(pieces.iter().map(Vec::as_slice)), shaped_glyph, &Dict::new(), fonts, prefix, None, &mut |o| o)
+        .map_err(|(e, _)| e)
+    {
         Ok(shaped) => (pieces, shaped),
         Err(_) => (lines.iter().map(plain).collect(), ShapedFonts::default()),
     }
