@@ -1,8 +1,8 @@
-# kstyles 체인 버전 업그레이드 프롬프트 v6 (그대로 붙여넣기 — 이름·번호는 에이전트가 계산)
+# kstyles 체인 버전 업그레이드 프롬프트 v7 (그대로 붙여넣기 — 이름·번호는 에이전트가 계산)
 
 
 이 문서는 `github/homeass/pdfcraft`의 비공식 한글 체인을 **지금 버전 → 다음 버전**으로 올릴 때 쓰는 유일한 절차서다.
-`kstyles14`(0.17.0)·`kstyles15`·`kstyles16`(0.18.0)·`kstyles17`(0.18.2)·`kstyles18`(0.19) ·`kstyles19`(0.20.0)·`kstyles20`(0.21.0)·`kstyles21`(0.21.1)까지 실제로 든 비용과 함정을 그대로 반영했다.
+`kstyles14`(0.17.0)·`kstyles15`·`kstyles16`(0.18.0)·`kstyles17`(0.18.2)·`kstyles18`(0.19) ·`kstyles19`(0.20.0)·`kstyles20`(0.21.0)·`kstyles21`(0.21.1)·`kstyles22`(0.22.0)까지 실제로 든 비용과 함정을 그대로 반영했다.
 **아래 블록을 수정 없이 붙여넣으면 된다** — 버전·태그·브랜치·연번은 0단계에서 스스로 구한다.
 
 ```
@@ -16,7 +16,9 @@
 
 ## 0) 변수 자동 계산 (사람이 고치는 항목 없음)
 REPO=/Volumes/ExternalSSD/Code/work/pdfcraft (재클론·새 워크트리 금지 — target/ 캐시 유지. 워크트리 경로는 반드시 /tmp 절대경로,
- 리비트는 refs/remotes/<remote>/<branch> 한정 표기 — 저장소 안에 `origin/main` 같은 경로가 생기면 push가 엉뚱하게 실패한다)
+ 리비트는 refs/remotes/<remote>/<branch> 한정 표기 — 저장소 안에 `origin/main` 같은 경로가 생기면 push가 엉뚱하게 실패한다.
+ 경로·리모트명은 머신마다 다르다: 이 Mac Studio는 `/Users/kyuhwanlee/Code/pdfcraft`에 `fork`=homeass(한글 포크),
+ `origin`=storytold(업스트림) — 작업 전 `git remote -v`로 먼저 확정한다. `target/` 캐시가 없으면 첫 게이트는 콜드 빌드다)
 `git fetch --all --tags --prune` 후 아래를 계산해서 보고에 적는다:
 - CUR_TAG  : 가장 최근 `v*-kstyles*` 태그가 가리키는 업스트림 베이스 (`git rev-parse <tag>^{}` 의 부모 사슬에서 version 확인)
 - NEXT_TAG : `git tag | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1` 이 CUR보다 새로우면 그것. 없으면 업그레이드 불요 — 중단하고 보고
@@ -136,10 +138,22 @@ REPO=/Volumes/ExternalSSD/Code/work/pdfcraft (재클론·새 워크트리 금지
 | 한글 IME | 스페이스 전까지 캐럿이 안 밀린다는 보고 | `ime_text`가 앱 경로 정상 증명 → 플랫폼 측, 실물 키보드 절차로 승부 |
 | Actions 422 (저장소 비활성) | 수동 디스패치만 422, 예약 실행은 정상, 토큰은 다른 저장소에서 유효. `actions/permissions` API는 enabled라고 해도 막힘 | 설정에서 Actions 다시 활성화(사용자가 직접). 진단: 무관한 저장소에 동일 명령을 날려 토큰/저장소를 가른다. 재발하면 브라우저 Run workflow 버튼으로 교차 확인 |
 | 디스패치 인자 오타 | `version` 구버전 → 설치본 버전 단정에서 탈락(빌드는 green이라 속기 쉽다) | dispatch 명령은 실행 전 `echo`로 전문 출력 후 실행. 버전 단정 실패 시 로그의 `VERSION:` env 줄부터 확인 |
-| 백업 quarantine | `ditto`가 `com.apple.quarantine`을 그대로 복사 → 백업 앱 실행 시 Gatekeeper SIGKILL(137). strict 검증은 통과하므로 속기 쉽다 | 백업 직후 `xattr -dr <백업>` + `--version` 확인까지 해야 백업 완료 |
+| 백업 quarantine | `ditto`가 `com.apple.quarantine`을 그대로 복사 → 백업 앱 실행 시 Gatekeeper SIGKILL(137). strict 검증은 통과하므로 속기 쉽다 | 백업 직후 `xattr -cr <백업>`(`-dr`은 속성명 없이 실패한다) + `--version` 확인까지 해야 백업 완료 |
 | 라이브 UI 하네스 무효 촬영 | `doc_save` 누락 → 빈 홈 화면에 타이핑(캔버스 blank), 클릭 미스로 에디터 미오픈, `inspect` 미확인 | 순서 고정: `open` 후 `state.documents` 비어 있지 않은지 → `edit.text` 활성화 → 타이핑 후 `inspect`에서 한글 확인 → 그때만 촬영. 한 에디터를 열어둔 채 선택기만 바꿔 3종 촬영 |
+| 릴리스 태그 trunk 부재 재발 (0.18.2 이어 0.22.0) | `merge-base --is-ancestor` 양방향 NO, 태그는 `origin/release`에만 | 오너 확정 후 태그 기준 재이식, 포크 main 불변. 드리프트 규모도 함께 보고(0.22.0: 695파일/356커밋) |
+| 대규모 unvendor 드리프트 | -110k행, `vendor/hayro*` 소멸 | `licenses/pdf-backend` 핀 + Cargo.lock 확인 후 포트 무관 선언. `vendor/` 잔존분과 혼동 금지 |
+| 병렬 레인 에이전트 과금 실패 | 백그라운드 작업이 즉시 ERROR(크레딧 고갈) | 재시도 없이 직접 수행 선언. `rebase --continue`마다 `MARKERS=0` 게이트 |
+| 충돌 마커 유령 커밋 | 마커 잔류 채 `git add`+continue → 깨진 커밋이 체인에 굳음 | 매 continue 전 `grep -rln "^<<<<<<< "` 검사. 사고 시 `rebase --abort` 후 처음부터(자동병합은 다시 붙는다) |
+| fmt 전용 커밋 증발 | `--ours` 채택 시 empty → 카운트 70→69 | `rev-list --count` 대조 후 탈락분을 끝부분 폴백 커밋으로 복원 |
+| `strings` 한글 미검출 | 멀티바이트 0개 → 합성 누락 오판 | python 바이트 계수(`data.count("나눔고딕".encode())`) |
+| `shasum -c` CWD | bare 파일명이라 다른 디렉토리에서 전부 FAILED | `SHA256SUMS.txt`가 있는 디렉토리에서 실행 |
+| 업스트림의 중복 패널 재구축 | ocr Settings 등 포트 블록과 통째로 충돌 | 업스트림 구조 유지 + 포트 델타(`language_available` 등)만 이식 |
+| ko-카탈로그 루프 재구성 | `hangul` vec 선언 이동 → 구(舊) 분기 유지 시 미선언 컴파일 에러 | `cargo check`가 잡으면 `catalog("ko")` 별도 블록 기준으로 루프를 hangul 제외형으로 수정 |
+| 제어 채널 메서드명 | `edit.text`가 아니라 `ui.command id=edit.edit_text` (`ui.click/ui.type/ui.screenshot/ui.inspect/ui.state`) | `ui.commands`로 먼저 확인. 클릭 단위는 pt(1.0 배율에선 px와 동일) |
 ```
 
 ## 상태 스냅샷 (2026-11-23)
-`v0.21.1-kstyles21`(브랜치 `feat/21.1-kstyles21`, 베이스 태그 `v0.21.1`, 68커밋) 배포 완료 — 3종 네이티브 CI success(단 Linux 1회 재실행: 디스패치 인자 오타), 릴리스 자산 11종 + README·SHA 완비. 설치본 `0.21.1 (kstyles21)` 실행 중.
+`v0.22.0-kstyles22`(브랜치 `feat/22.0-kstyles22`, 베이스 태그 `v0.22.0` — trunk 미포함 릴리스이므로
+태그 기준, 포크 main 불변, 71커밋) 배포 완료 — 3종 네이티브 CI success, 릴리스 자산 10종 +
+릴리스 본문 digest표. 설치본 `0.22.0 (kstyles22)` 실행 중(영어 정식판 0.22.0은 app-backups에 보존).
 다음 사이클의 `NEXT_TAG`는 `git tag`로 계산한다(하드코딩 금지).
