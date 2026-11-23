@@ -1,8 +1,8 @@
-# kstyles 체인 버전 업그레이드 프롬프트 v5 (그대로 붙여넣기 — 이름·번호는 에이전트가 계산)
+# kstyles 체인 버전 업그레이드 프롬프트 v6 (그대로 붙여넣기 — 이름·번호는 에이전트가 계산)
 
 
-이 문서는 `github/homeass/pdfcraft`의 비공식 한글 체인을 **지금 버전(0.19) → 다음 버전(0.20)**으로 올릴 때 쓰는 유일한 절차서다.
-`kstyles14`(0.17.0)·`kstyles15`·`kstyles16`(0.18.0)·`kstyles17`(0.18.2)kstyles18`(0.19) 실제로 든 비용과 함정을 그대로 반영했다.
+이 문서는 `github/homeass/pdfcraft`의 비공식 한글 체인을 **지금 버전 → 다음 버전**으로 올릴 때 쓰는 유일한 절차서다.
+`kstyles14`(0.17.0)·`kstyles15`·`kstyles16`(0.18.0)·`kstyles17`(0.18.2)·`kstyles18`(0.19) ·`kstyles19`(0.20.0)·`kstyles20`(0.21.0)·`kstyles21`(0.21.1)까지 실제로 든 비용과 함정을 그대로 반영했다.
 **아래 블록을 수정 없이 붙여넣으면 된다** — 버전·태그·브랜치·연번은 0단계에서 스스로 구한다.
 
 ```
@@ -134,8 +134,12 @@ REPO=/Volumes/ExternalSSD/Code/work/pdfcraft (재클론·새 워크트리 금지
 | 카탈로그 임베드 위치 | CLI zip에서 라벨 0개 → 합성 누락으로 오판 | GUI 앱 바이너리(`Contents/MacOS/PdfCraft`)에서 검사 |
 | `/tmp` 정리 + PIL 없는 python | 며칠 뒤 검증 픽스처·Pillow가 없어 스모크 실패 | 검증에는 저장소 픽스처 `crates/ocr/tests/data/fixture-ko.png`를 쓰고, 재생성이 필요하면 고정 스크립트를 워크스페이스에 보관 |
 | 한글 IME | 스페이스 전까지 캐럿이 안 밀린다는 보고 | `ime_text`가 앱 경로 정상 증명 → 플랫폼 측, 실물 키보드 절차로 승부 |
+| Actions 422 (저장소 비활성) | 수동 디스패치만 422, 예약 실행은 정상, 토큰은 다른 저장소에서 유효. `actions/permissions` API는 enabled라고 해도 막힘 | 설정에서 Actions 다시 활성화(사용자가 직접). 진단: 무관한 저장소에 동일 명령을 날려 토큰/저장소를 가른다. 재발하면 브라우저 Run workflow 버튼으로 교차 확인 |
+| 디스패치 인자 오타 | `version` 구버전 → 설치본 버전 단정에서 탈락(빌드는 green이라 속기 쉽다) | dispatch 명령은 실행 전 `echo`로 전문 출력 후 실행. 버전 단정 실패 시 로그의 `VERSION:` env 줄부터 확인 |
+| 백업 quarantine | `ditto`가 `com.apple.quarantine`을 그대로 복사 → 백업 앱 실행 시 Gatekeeper SIGKILL(137). strict 검증은 통과하므로 속기 쉽다 | 백업 직후 `xattr -dr <백업>` + `--version` 확인까지 해야 백업 완료 |
+| 라이브 UI 하네스 무효 촬영 | `doc_save` 누락 → 빈 홈 화면에 타이핑(캔버스 blank), 클릭 미스로 에디터 미오픈, `inspect` 미확인 | 순서 고정: `open` 후 `state.documents` 비어 있지 않은지 → `edit.text` 활성화 → 타이핑 후 `inspect`에서 한글 확인 → 그때만 촬영. 한 에디터를 열어둔 채 선택기만 바꿔 3종 촬영 |
 ```
 
-## 상태 스냅샷 (2026-11-10)
-`v0.19.0-kstyles18`(브랜치 `feat/19.0-kstyles18`, 베이스 태그 `v0.19.0`) 배포 완료 — 3종 네이티브 CI success, 릴리스 자산 10개 + README·SHA 완비.
-다음 사이클은 `kstyles19`(업스트림 `v0.20.0` — 이미 릴리스됨)이다.
+## 상태 스냅샷 (2026-11-23)
+`v0.21.1-kstyles21`(브랜치 `feat/21.1-kstyles21`, 베이스 태그 `v0.21.1`, 68커밋) 배포 완료 — 3종 네이티브 CI success(단 Linux 1회 재실행: 디스패치 인자 오타), 릴리스 자산 11종 + README·SHA 완비. 설치본 `0.21.1 (kstyles21)` 실행 중.
+다음 사이클의 `NEXT_TAG`는 `git tag`로 계산한다(하드코딩 금지).
